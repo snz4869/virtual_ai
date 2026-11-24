@@ -5,9 +5,9 @@ import {
   OFFICE_ROOMS,
   WAYPOINTS,
 } from '../constants/officeConfig';
-import { buildNavigationPath } from '../utils/pathfinding';
+import { buildOfficePath } from '../utils/pathfinding';
+import { playRetroTone } from '../utils/audio';
 
-// Helper menggambar kotak pixel-art ber-outline gelap (gaya Stardew Valley)
 function drawPixelBox(ctx, x, y, w, h, fill, stroke = '#2c221e', lineWidth = 2) {
   ctx.fillStyle = fill;
   ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
@@ -23,7 +23,6 @@ function drawPixelBox(ctx, x, y, w, h, fill, stroke = '#2c221e', lineWidth = 2) 
   }
 }
 
-// Helper tanaman hias pixel-art
 function drawPixelPlant(ctx, x, y) {
   ctx.fillStyle = 'rgba(0,0,0,0.16)';
   ctx.beginPath();
@@ -50,7 +49,6 @@ function drawPixelPlant(ctx, x, y) {
   });
 }
 
-// Helper workstation kayu + monitor + keyboard + kursi
 function drawWorkstation(ctx, x, y, screenColor = '#38bdf8', facing = 'down') {
   drawPixelBox(ctx, x, y, 96, 46, '#c88a55', '#2c221e', 2);
   ctx.fillStyle = '#dba06c';
@@ -65,14 +63,12 @@ function drawWorkstation(ctx, x, y, screenColor = '#38bdf8', facing = 'down') {
 
   drawPixelBox(ctx, x + 32, y + 31, 30, 8, '#e2e8f0', '#475569', 1.5);
   drawPixelBox(ctx, x + 68, y + 32, 8, 7, '#cbd5e1', '#475569', 1.5);
-
   drawPixelBox(ctx, x + 8, y + 14, 14, 18, '#fef9c3', '#713f12', 1.5);
 
   const chairY = facing === 'down' ? y - 16 : y + 48;
   drawPixelBox(ctx, x + 36, chairY, 24, 14, '#475569', '#1e293b', 2);
 }
 
-// Helper Rak Buku
 function drawBookshelf(ctx, x, y, w = 72) {
   drawPixelBox(ctx, x, y, w, 44, '#8d5b3c', '#2c221e', 2);
   const bookColors = ['#ef4444', '#3b82f6', '#eab308', '#10b981', '#a855f7'];
@@ -87,7 +83,6 @@ function drawBookshelf(ctx, x, y, w = 72) {
   }
 }
 
-// Render seluruh latar statis kantor ke 1 offscreen canvas (sekali saja!)
 function createOfficeBackgroundBuffer() {
   const off = document.createElement('canvas');
   off.width = WORLD_W;
@@ -227,46 +222,77 @@ function createOfficeBackgroundBuffer() {
   return off;
 }
 
-function drawRPGCharacter(ctx, entity, frameTick) {
-  const { x, y, name, shirtColor, hairColor, skinColor, isMoving, status, bubbleText } = entity;
-  const bob = isMoving ? Math.sin(frameTick * 0.25) * 2.5 : 0;
-  const px = Math.round(x);
-  const py = Math.round(y + bob);
+function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected = false) {
+  if (!entity || typeof entity.x !== 'number' || typeof entity.y !== 'number') return;
+
+  const isWalking = isDirector
+    ? Boolean(entity.isMoving)
+    : entity.state === 'WALKING' || (entity.state === 'IDLE' && Boolean(entity.roamTarget));
+  const isWorking = !isDirector && entity.state === 'WORKING';
+
+  const bob = isWalking ? Math.abs(Math.sin(entity.walkPhase || 0)) * -4 : 0;
+  const px = Math.round(entity.x);
+  const py = Math.round(entity.y + bob);
+
+  if (isDirector || isSelected) {
+    ctx.beginPath();
+    ctx.ellipse(px, Math.round(entity.y) + 15, 18, 8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = isDirector ? 'rgba(236, 72, 153, 0.25)' : 'rgba(99, 102, 241, 0.28)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = isDirector ? '#ec4899' : '#6366f1';
+    ctx.stroke();
+  }
 
   ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.beginPath();
-  ctx.ellipse(px, Math.round(y) + 15, 11, 4.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(px, Math.round(entity.y) + 15, 11, 4.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const legOffset = isMoving ? Math.sin(frameTick * 0.3) * 3 : 0;
+  const legOffset = isWalking ? Math.sin(entity.walkPhase || 0) * 3 : 0;
   drawPixelBox(ctx, px - 7, py + 6 + legOffset, 6, 9, '#1e293b', '#0f172a', 1.5);
   drawPixelBox(ctx, px + 1, py + 6 - legOffset, 6, 9, '#1e293b', '#0f172a', 1.5);
 
-  drawPixelBox(ctx, px - 9, py - 5, 18, 13, shirtColor, '#1e1b18', 2);
-  drawPixelBox(ctx, px - 9, py - 21, 18, 16, skinColor, '#1e1b18', 2);
-  drawPixelBox(ctx, px - 10, py - 24, 20, 7, hairColor, '#1e1b18', 1.5);
+  const shirt = entity.shirtColor || entity.accentHex || '#3b82f6';
+  const skin = entity.skinColor || '#f8cba6';
+  const hair = entity.hairColor || '#1e293b';
+
+  drawPixelBox(ctx, px - 9, py - 5, 18, 13, shirt, '#1e1b18', 2);
+  drawPixelBox(ctx, px - 9, py - 21, 18, 16, skin, '#1e1b18', 2);
+  drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
 
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(px - 5, py - 14, 2.5, 3);
   ctx.fillRect(px + 3, py - 14, 2.5, 3);
 
+  const labelName = entity.name || 'Agent';
   ctx.font = 'bold 11px "Inter", system-ui, sans-serif';
-  const labelW = ctx.measureText(name).width + 16;
+  const labelW = ctx.measureText(labelName).width + 16;
   const labelY = py - 44;
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
   ctx.beginPath();
   ctx.roundRect(px - labelW / 2, labelY, labelW, 18, 9);
   ctx.fill();
 
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
-  ctx.fillText(name, px, labelY + 13);
+  ctx.fillText(labelName, px, labelY + 13);
 
-  if (bubbleText || status === 'WORKING') {
-    const text = bubbleText || '...';
+  if (entity.hasReportExclamation) {
+    const bounce = Math.sin(timeSec * 8) * 3;
+    const by = labelY - 26 + bounce;
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath();
+    ctx.roundRect(px - 12, by, 24, 20, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px "JetBrains Mono", monospace';
+    ctx.fillText('!', px, by + 14.5);
+  } else if (entity.statusBubble || isWorking) {
+    const text = entity.statusBubble || '⚙️ Bekerja...';
     ctx.font = '600 10px "Inter", system-ui, sans-serif';
-    const bw = Math.max(34, ctx.measureText(text).width + 16);
+    const bw = Math.max(38, ctx.measureText(text).width + 16);
     const by = labelY - 24;
 
     ctx.fillStyle = '#ffffff';
@@ -282,148 +308,240 @@ function drawRPGCharacter(ctx, entity, frameTick) {
   }
 }
 
-export default function OfficeCanvas2D({ agents, activeTask, directorTarget, onDirectorArrive }) {
+export default function OfficeCanvas2D({
+  npcRef,
+  directorRef,
+  simSpeed = 1,
+  fxEnabled = true,
+  selectedNpcId = null,
+  onSelectNpc,
+  onClearInspector,
+}) {
   const canvasRef = useRef(null);
   const bgBufferRef = useRef(null);
   const keysRef = useRef({});
-  const stateRef = useRef({
-    director: {
-      x: WAYPOINTS.hallwayCenter.x,
-      y: WAYPOINTS.hallwayCenter.y,
-      name: 'You (Director)',
-      shirtColor: '#f59e0b',
-      hairColor: '#1e293b',
-      skinColor: '#f8cba6',
-      isMoving: false,
-      path: [],
-    },
-    npcs: {},
-    tick: 0,
-  });
 
+  // Keyboard WASD / Arrow Keys untuk karakter Director
   useEffect(() => {
-    agents.forEach((ag) => {
-      if (!stateRef.current.npcs[ag.id]) {
-        const home = WAYPOINTS[ag.homeSpot] || WAYPOINTS.leadDesk;
-        stateRef.current.npcs[ag.id] = {
-          ...ag,
-          x: home.x,
-          y: home.y,
-          path: [],
-          isMoving: false,
-        };
-      } else {
-        Object.assign(stateRef.current.npcs[ag.id], ag);
+    const handleKeyDown = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const key = e.key.toLowerCase();
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        keysRef.current[key] = true;
+        if (directorRef?.current) {
+          directorRef.current.pathQueue = [];
+        }
       }
-    });
-  }, [agents]);
-
-  useEffect(() => {
-    if (directorTarget) {
-      stateRef.current.director.path = buildNavigationPath(
-        stateRef.current.director,
-        directorTarget
-      );
-    }
-  }, [directorTarget]);
-
-  useEffect(() => {
-    const down = (e) => {
-      keysRef.current[e.key.toLowerCase()] = true;
     };
-    const up = (e) => {
-      keysRef.current[e.key.toLowerCase()] = false;
+
+    const handleKeyUp = (e) => {
+      delete keysRef.current[e.key.toLowerCase()];
     };
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [directorRef]);
 
   useEffect(() => {
     if (!bgBufferRef.current) {
       bgBufferRef.current = createOfficeBackgroundBuffer();
     }
 
-    let animId;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    let animId;
+    let lastTime = performance.now();
 
-    const moveAlongPath = (entity, speed = 2.4) => {
-      if (!entity.path || entity.path.length === 0) {
-        entity.isMoving = false;
+    const toWorld = (clientX, clientY) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = WORLD_W / rect.width;
+      const scaleY = WORLD_H / rect.height;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
+      };
+    };
+
+    const hitTestNpc = (wx, wy) => {
+      const npcs = npcRef?.current || [];
+      for (const npc of npcs) {
+        if (Math.hypot(wx - npc.x, wy - (npc.y - 8)) <= 26) return npc;
+        const d = npc.deskRect;
+        if (d && wx >= d.x && wx <= d.x + d.w && wy >= d.y && wy <= d.y + d.h) return npc;
+      }
+      return null;
+    };
+
+    const onMouseMove = (e) => {
+      const pt = toWorld(e.clientX, e.clientY);
+      const hit = hitTestNpc(pt.x, pt.y);
+      canvas.style.cursor = hit ? 'pointer' : 'crosshair';
+    };
+
+    const onClick = (e) => {
+      const pt = toWorld(e.clientX, e.clientY);
+      const hit = hitTestNpc(pt.x, pt.y);
+      if (hit) {
+        playRetroTone('click', fxEnabled);
+        onSelectNpc?.(hit.id);
         return;
       }
-      const next = entity.path[0];
-      const dx = next.x - entity.x;
-      const dy = next.y - entity.y;
-      const dist = Math.hypot(dx, dy);
 
-      if (dist <= speed) {
-        entity.x = next.x;
-        entity.y = next.y;
-        entity.path.shift();
-        if (entity.path.length === 0) {
-          entity.isMoving = false;
-          if (entity === stateRef.current.director && onDirectorArrive) {
-            onDirectorArrive();
-          }
-        }
-      } else {
-        entity.x += (dx / dist) * speed;
-        entity.y += (dy / dist) * speed;
-        entity.isMoving = true;
+      onClearInspector?.();
+      const clampedX = Math.max(45, Math.min(WORLD_W - 45, pt.x));
+      const clampedY = Math.max(45, Math.min(WORLD_H - 45, pt.y));
+      const dir = directorRef?.current;
+      if (dir) {
+        dir.targetMarker = { x: clampedX, y: clampedY, ttl: 1.0 };
+        dir.pathQueue = buildOfficePath(dir.x, dir.y, { x: clampedX, y: clampedY });
+        playRetroTone('step', fxEnabled);
       }
     };
 
-    const loop = () => {
-      const st = stateRef.current;
-      st.tick += 1;
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('click', onClick);
 
+    const update = (dt) => {
+      const dir = directorRef?.current;
       const keys = keysRef.current;
-      let vx = 0;
-      let vy = 0;
-      if (keys['w'] || keys['arrowup']) vy -= 2.6;
-      if (keys['s'] || keys['arrowdown']) vy += 2.6;
-      if (keys['a'] || keys['arrowleft']) vx -= 2.6;
-      if (keys['d'] || keys['arrowright']) vx += 2.6;
+      const dirSpeed = 220;
 
-      if (vx !== 0 || vy !== 0) {
-        st.director.path = [];
-        st.director.x = Math.max(30, Math.min(WORLD_W - 30, st.director.x + vx));
-        st.director.y = Math.max(30, Math.min(WORLD_H - 30, st.director.y + vy));
-        st.director.isMoving = true;
-      } else {
-        moveAlongPath(st.director, 2.8);
+      if (dir) {
+        let vx = 0;
+        let vy = 0;
+        if (keys['w'] || keys['arrowup']) vy -= 1;
+        if (keys['s'] || keys['arrowdown']) vy += 1;
+        if (keys['a'] || keys['arrowleft']) vx -= 1;
+        if (keys['d'] || keys['arrowright']) vx += 1;
+
+        if (vx !== 0 || vy !== 0) {
+          const len = Math.hypot(vx, vy);
+          dir.x = Math.max(36, Math.min(WORLD_W - 36, dir.x + (vx / len) * dirSpeed * dt));
+          dir.y = Math.max(36, Math.min(WORLD_H - 36, dir.y + (vy / len) * dirSpeed * dt));
+          dir.isMoving = true;
+          dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
+        } else if (dir.pathQueue && dir.pathQueue.length > 0) {
+          const nextPt = dir.pathQueue[0];
+          const dx = nextPt.x - dir.x;
+          const dy = nextPt.y - dir.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 4) {
+            dir.x = nextPt.x;
+            dir.y = nextPt.y;
+            dir.pathQueue.shift();
+          } else {
+            dir.x += (dx / dist) * dirSpeed * dt;
+            dir.y += (dy / dist) * dirSpeed * dt;
+            dir.isMoving = true;
+            dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
+          }
+        } else {
+          dir.isMoving = false;
+        }
+
+        if (dir.targetMarker && dir.targetMarker.ttl > 0) {
+          dir.targetMarker.ttl -= dt;
+        }
       }
 
-      Object.values(st.npcs).forEach((npc) => {
-        const targetSpot =
-          npc.status === 'WORKING' ? npc.homeSpot : npc.roamSpot || npc.homeSpot;
-        const dest = WAYPOINTS[targetSpot];
-        if (dest && Math.hypot(dest.x - npc.x, dest.y - npc.y) > 8 && npc.path.length === 0) {
-          npc.path = buildNavigationPath(npc, targetSpot);
+      const npcs = npcRef?.current || [];
+      const npcSpeed = 180;
+
+      npcs.forEach((npc) => {
+        if (npc.state === 'WALKING' && npc.pathQueue && npc.pathQueue.length > 0) {
+          const target = npc.pathQueue[0];
+          const dx = target.x - npc.x;
+          const dy = target.y - npc.y;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist < 4) {
+            npc.x = target.x;
+            npc.y = target.y;
+            npc.pathQueue.shift();
+            if (npc.pathQueue.length === 0 && npc.onArriveCallback) {
+              const cb = npc.onArriveCallback;
+              npc.onArriveCallback = null;
+              cb();
+            }
+          } else {
+            npc.x += (dx / dist) * npcSpeed * dt;
+            npc.y += (dy / dist) * npcSpeed * dt;
+            npc.walkPhase = (npc.walkPhase || 0) + dt * 14;
+          }
+        } else if (npc.state === 'IDLE') {
+          npc.roamCooldown = (npc.roamCooldown ?? 2 + Math.random() * 3) - dt;
+          if (npc.roamTarget) {
+            const dx = npc.roamTarget.x - npc.x;
+            const dy = npc.roamTarget.y - npc.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 3) {
+              npc.roamTarget = null;
+            } else {
+              npc.x += (dx / dist) * 52 * dt;
+              npc.y += (dy / dist) * 52 * dt;
+              npc.walkPhase = (npc.walkPhase || 0) + dt * 9;
+            }
+          } else if (npc.roamCooldown <= 0) {
+            npc.roamCooldown = 3 + Math.random() * 4;
+            const spots = [
+              npc.homeSpot,
+              WAYPOINTS.loungeSofa,
+              WAYPOINTS.lounge_alex,
+              WAYPOINTS.lounge_raka,
+              WAYPOINTS.lounge_nadia,
+            ].filter(Boolean);
+            npc.roamTarget = spots[Math.floor(Math.random() * spots.length)];
+          }
         }
-        moveAlongPath(npc, 2.1);
       });
+    };
+
+    const loop = (now) => {
+      const dt = Math.min((now - lastTime) / 1000, 0.1) * simSpeed;
+      lastTime = now;
+      update(dt);
 
       ctx.clearRect(0, 0, WORLD_W, WORLD_H);
       ctx.drawImage(bgBufferRef.current, 0, 0);
 
-      const entities = [st.director, ...Object.values(st.npcs)].sort(
-        (a, b) => a.y - b.y
+      const dir = directorRef?.current;
+      if (dir?.targetMarker && dir.targetMarker.ttl > 0) {
+        ctx.save();
+        ctx.strokeStyle = '#ec4899';
+        ctx.lineWidth = 2.5;
+        ctx.globalAlpha = Math.max(0, dir.targetMarker.ttl);
+        ctx.beginPath();
+        ctx.arc(dir.targetMarker.x, dir.targetMarker.y, 14 * (1.2 - dir.targetMarker.ttl), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const npcs = npcRef?.current || [];
+      const renderList = [
+        ...(dir ? [{ ...dir, isDirector: true }] : []),
+        ...npcs.map((n) => ({ ...n, isDirector: false })),
+      ].sort((a, b) => (a.y || 0) - (b.y || 0));
+
+      renderList.forEach((ent) =>
+        drawRPGCharacter(ctx, ent, now / 1000, ent.isDirector, ent.id === selectedNpcId)
       );
-      entities.forEach((ent) => drawRPGCharacter(ctx, ent, st.tick));
 
       animId = requestAnimationFrame(loop);
     };
 
     animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
-  }, [activeTask, onDirectorArrive]);
+    return () => {
+      cancelAnimationFrame(animId);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('click', onClick);
+    };
+  }, [simSpeed, fxEnabled, selectedNpcId, npcRef, directorRef, onSelectNpc, onClearInspector]);
 
   return (
     <div className="relative w-full h-full overflow-auto bg-[#1e1b24] flex items-start justify-center p-3">
