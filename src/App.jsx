@@ -94,8 +94,10 @@ export default function App() {
   const npcRef = useRef(
     DEFAULT_AGENTS.map((a) => ({
       ...a,
-      x: a.homeSpot.x,
-      y: a.homeSpot.y,
+      x: a.homeSpot?.x ?? WAYPOINTS.lounge_alex.x,
+      y: a.homeSpot?.y ?? WAYPOINTS.lounge_alex.y,
+      homeSpot: a.homeSpot || WAYPOINTS.lounge_alex,
+      deskSpot: a.deskSpot || WAYPOINTS.desk_alex,
       state: 'IDLE',
       statusBubble: '',
       carryingDoc: false,
@@ -119,19 +121,27 @@ export default function App() {
         if (saved.geminiApiKey) setGeminiApiKey(saved.geminiApiKey);
         if (Array.isArray(saved.logs)) setLogs(saved.logs);
         if (Array.isArray(saved.agents) && saved.agents.length === 3) {
-          setAgents(saved.agents);
+          const mergedAgents = DEFAULT_AGENTS.map((def, idx) => ({
+            ...def,
+            name: saved.agents[idx]?.name || def.name,
+            role: saved.agents[idx]?.role || def.role,
+            sop: saved.agents[idx]?.sop || def.sop,
+          }));
+          setAgents(mergedAgents);
           npcRef.current.forEach((npc, idx) => {
-            npc.name = saved.agents[idx].name;
-            npc.role = saved.agents[idx].role;
-            npc.sop = saved.agents[idx].sop;
+            npc.name = mergedAgents[idx].name;
+            npc.role = mergedAgents[idx].role;
+            npc.sop = mergedAgents[idx].sop;
+            npc.homeSpot = mergedAgents[idx].homeSpot;
+            npc.deskSpot = mergedAgents[idx].deskSpot;
           });
         }
       }
     } catch {
-      // ignore storage error
+      localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
-
+  
   useEffect(() => {
     try {
       localStorage.setItem(
