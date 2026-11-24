@@ -463,8 +463,8 @@ export default function App() {
     setIsRelayRunning(false);
     setLogs([]);
     setSelectedNpcId(null);
-    directorRef.current.x = WAYPOINTS.director_home.x;
-    directorRef.current.y = WAYPOINTS.director_home.y;
+    directorRef.current.x = WAYPOINTS?.director_home?.x ?? 175;
+    directorRef.current.y = WAYPOINTS?.director_home?.y ?? 185;
     directorRef.current.pathQueue = [];
 
     npcRef.current.forEach((npc, idx) => {
