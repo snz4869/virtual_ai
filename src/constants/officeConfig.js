@@ -141,3 +141,21 @@ export const DEFAULT_AGENTS = [
     sop: 'Audit kode dan hasil kerja dari sisi edge-case, UX, dan keamanan lalu susun laporan akhir yang rapi.',
   },
 ];
+
+export const DEFAULT_BRIEF =
+  'Bangun aplikasi Web Dashboard untuk monitoring tugas harian dengan fitur tambah tugas, filter status, dan ringkasan progres.';
+
+export const PRESET_PROMPTS = [
+  {
+    label: 'Landing Page SaaS',
+    brief: 'Buat landing page modern untuk produk SaaS manajemen keuangan UMKM lengkap dengan bagian Hero, Fitur Utama, dan Tabel Harga.',
+  },
+  {
+    label: 'REST API & Auth',
+    brief: 'Rancang arsitektur dan kode endpoint REST API untuk sistem autentikasi JWT (Login, Register, Refresh Token) beserta validasi input.',
+  },
+  {
+    label: 'Dashboard Analytics',
+    brief: 'Bangun komponen dashboard interaktif untuk menampilkan metrik penjualan harian, grafik tren bulanan, dan tabel transaksi terbaru.',
+  },
+];
