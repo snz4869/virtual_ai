@@ -92,23 +92,40 @@ export default function App() {
   });
 
   const npcRef = useRef(
-    DEFAULT_AGENTS.map((a) => ({
-      ...a,
-      x: a.homeSpot?.x ?? WAYPOINTS.lounge_alex.x,
-      y: a.homeSpot?.y ?? WAYPOINTS.lounge_alex.y,
-      homeSpot: a.homeSpot || WAYPOINTS.lounge_alex,
-      deskSpot: a.deskSpot || WAYPOINTS.desk_alex,
-      state: 'IDLE',
-      statusBubble: '',
-      carryingDoc: false,
-      hasReportExclamation: false,
-      pathQueue: [],
-      onArriveCallback: null,
-      walkPhase: Math.random() * 6,
-      facing: 'down',
-      roamTarget: null,
-      roamCooldown: 1 + Math.random() * 2
-    }))
+    (DEFAULT_AGENTS || []).map((a, idx) => {
+      const defaultX = [815, 865, 895][idx] ?? 850;
+      const defaultY = [185, 205, 165][idx] ?? 185;
+      const deskX = [470, 605, 850][idx] ?? 500;
+      const deskY = [235, 235, 650][idx] ?? 235;
+
+      const resolvedHome =
+        typeof a.homeSpot === 'object' && a.homeSpot !== null
+          ? a.homeSpot
+          : { x: defaultX, y: defaultY };
+
+      const resolvedDesk =
+        typeof a.deskSpot === 'object' && a.deskSpot !== null
+          ? a.deskSpot
+          : { x: deskX, y: deskY };
+
+      return {
+        ...a,
+        x: resolvedHome.x,
+        y: resolvedHome.y,
+        homeSpot: resolvedHome,
+        deskSpot: resolvedDesk,
+        state: 'IDLE',
+        statusBubble: '',
+        carryingDoc: false,
+        hasReportExclamation: false,
+        pathQueue: [],
+        onArriveCallback: null,
+        walkPhase: Math.random() * 6,
+        facing: 'down',
+        roamTarget: null,
+        roamCooldown: 1 + Math.random() * 2
+      };
+    })
   );
 
   // Load saved state
@@ -468,9 +485,11 @@ export default function App() {
     directorRef.current.pathQueue = [];
 
     npcRef.current.forEach((npc, idx) => {
-      const def = agents[idx];
-      npc.x = def.homeSpot.x;
-      npc.y = def.homeSpot.y;
+      const def = agents[idx] || {};
+      const fallbackX = [815, 865, 895][idx] ?? 850;
+      const fallbackY = [185, 205, 165][idx] ?? 185;
+      npc.x = def.homeSpot?.x ?? fallbackX;
+      npc.y = def.homeSpot?.y ?? fallbackY;
       npc.state = 'IDLE';
       npc.statusBubble = '';
       npc.carryingDoc = false;
