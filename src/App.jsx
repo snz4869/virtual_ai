@@ -52,7 +52,35 @@ function formatMarkdownLite(rawText) {
   return text;
 }
 
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+  });
+};
+
+const ALLOWED_FILE_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/png',
+  'image/jpeg',
+  'image/webp'
+];
+
 export default function App() {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileBase64, setFileBase64] = useState(null);
+  const [isReadingFile, setIsReadingFile] = useState(false);
+  const [aiProvider, setAiProvider] = useState('auto');
+  const [deepseekApiKey, setDeepseekApiKey] = useState('');
+  const [draftProvider, setDraftProvider] = useState('auto');
+  const [draftDeepseekKey, setDraftDeepseekKey] = useState('');
   const [projectBrief, setProjectBrief] = useState(DEFAULT_BRIEF);
   const [apiMode, setApiMode] = useState('demo');
   const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -68,7 +96,7 @@ export default function App() {
   const [selectedNpcId, setSelectedNpcId] = useState(null);
   const [toast, setToast] = useState(null);
 
-  const [activeModal, setActiveModal] = useState(null); // 'settings' | 'sop' | null
+  const [activeModal, setActiveModal] = useState(null);
   const [draftBrief, setDraftBrief] = useState(DEFAULT_BRIEF);
   const [draftMode, setDraftMode] = useState('demo');
   const [draftKey, setDraftKey] = useState('');
@@ -76,6 +104,61 @@ export default function App() {
 
   const abortRef = useRef(false);
   const logEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const showToast = (msg, type = 'info') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3200);
+  };
+
+  const resetFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const clearFile = () => {
+    setSelectedFile(null);
+    setFileBase64(null);
+    setIsReadingFile(false);
+    resetFileInput();
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validasi tipe file
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      showToast('Tipe file tidak didukung. Gunakan PDF, DOCX, XLSX, PNG, JPG, atau WEBP.', 'error');
+      e.target.value = '';
+      return;
+    }
+
+    // Validasi ukuran (batas Vercel 4.5MB, base64 membengkak ~33%)
+    if (file.size > 3 * 1024 * 1024) {
+      showToast('File terlalu besar (maks ~3MB untuk mode serverless).', 'error');
+      e.target.value = '';
+      return;
+    }
+
+    setSelectedFile(file);
+    setFileBase64(null); // reset dulu
+    setIsReadingFile(true);
+
+    try {
+      const base64 = await fileToBase64(file);
+      setFileBase64(base64);
+      showToast(`File "${file.name}" siap dikirim.`, 'success');
+    } catch {
+      showToast('Gagal membaca file.', 'error');
+      setSelectedFile(null);
+      setFileBase64(null);
+      e.target.value = '';
+    } finally {
+      setIsReadingFile(false);
+    }
+  };
 
   const directorRef = useRef({
     name: 'Director (You)',
@@ -158,7 +241,7 @@ export default function App() {
       localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
-  
+
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -173,11 +256,6 @@ export default function App() {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs, logFilter]);
-
-  const showToast = (msg, type = 'info') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3200);
-  };
 
   const moveNpcTo = (npcId, targetPoint, options = {}) => {
     return new Promise((resolve) => {
@@ -214,9 +292,22 @@ export default function App() {
 
   const startAutoRelay = async () => {
     if (isRelayRunning) return;
+
+    // Cek apakah file masih dibaca
+    if (isReadingFile) {
+      showToast('File sedang dibaca, tunggu sebentar...', 'info');
+      return;
+    }
+
     const taskPrompt = promptInput.trim();
     if (!taskPrompt) {
       showToast('Masukkan instruksi Director terlebih dahulu.', 'error');
+      return;
+    }
+
+    // Jika ada file terpilih tapi base64 belum siap
+    if (selectedFile && !fileBase64) {
+      showToast('File belum siap. Coba pilih ulang file.', 'error');
       return;
     }
 
@@ -259,7 +350,12 @@ export default function App() {
         recentLogs: currentLogs,
         apiMode,
         clientApiKey: geminiApiKey,
-        simSpeed
+        simSpeed,
+        provider: aiProvider,
+        deepseekApiKey: deepseekApiKey,
+        fileData: fileBase64 && selectedFile
+          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
+          : null,
       });
       if (abortRef.current) throw new Error('ABORTED');
 
@@ -310,8 +406,14 @@ export default function App() {
         recentLogs: currentLogs,
         apiMode,
         clientApiKey: geminiApiKey,
-        simSpeed
+        simSpeed,
+        provider: aiProvider,
+        deepseekApiKey: deepseekApiKey,
+        fileData: fileBase64 && selectedFile
+          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
+          : null,
       });
+
       if (abortRef.current) throw new Error('ABORTED');
 
       const rakaLog = {
@@ -361,8 +463,14 @@ export default function App() {
         recentLogs: currentLogs,
         apiMode,
         clientApiKey: geminiApiKey,
-        simSpeed
+        simSpeed,
+        provider: aiProvider,
+        deepseekApiKey: deepseekApiKey,
+        fileData: fileBase64 && selectedFile
+          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
+          : null,
       });
+
       if (abortRef.current) throw new Error('ABORTED');
 
       const nadiaLog = {
@@ -405,11 +513,23 @@ export default function App() {
       });
     } finally {
       setIsRelayRunning(false);
+      clearFile();
     }
   };
 
   const dispatchSingleAgent = async () => {
     if (!selectedNpcId || isRelayRunning) return;
+
+    if (isReadingFile) {
+      showToast('File sedang dibaca, tunggu sebentar...', 'info');
+      return;
+    }
+
+    if (selectedFile && !fileBase64) {
+      showToast('File belum siap. Coba pilih ulang file.', 'error');
+      return;
+    }
+
     const agent = agents.find((a) => a.id === selectedNpcId);
     if (!agent) return;
 
@@ -446,7 +566,12 @@ export default function App() {
         recentLogs: [...logs, dirLog],
         apiMode,
         clientApiKey: geminiApiKey,
-        simSpeed
+        simSpeed,
+        provider: aiProvider,
+        deepseekApiKey: deepseekApiKey,
+        fileData: fileBase64 && selectedFile
+          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
+          : null,
       });
       if (abortRef.current) throw new Error('ABORTED');
 
@@ -472,6 +597,7 @@ export default function App() {
       if (err.message !== 'ABORTED') showToast(err.message, 'error');
     } finally {
       setIsRelayRunning(false);
+      clearFile();
     }
   };
 
@@ -480,8 +606,9 @@ export default function App() {
     setIsRelayRunning(false);
     setLogs([]);
     setSelectedNpcId(null);
+    clearFile();
     directorRef.current.x = WAYPOINTS?.director_home?.x ?? 175;
-    directorRef.current.y = WAYPOINTS?.director_home?.y ?? 185;
+    directorRef.current.y = WAYPOINTS?.director_home?.y ?? 95;
     directorRef.current.pathQueue = [];
 
     npcRef.current.forEach((npc, idx) => {
@@ -702,6 +829,12 @@ export default function App() {
                 >
                   Tes Teknis (API)
                 </button>
+                <button
+                  onClick={() => setPromptInput(PRESET_PROMPTS[2])}
+                  className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                >
+                  Buat Landing Pages (API)
+                </button>
               </div>
             </div>
 
@@ -720,8 +853,35 @@ export default function App() {
             />
 
             <div className="flex items-center gap-2">
+              <label className="cursor-pointer text-[10px] px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700">
+                📎 Lampirkan File
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+              {isReadingFile && (
+                <span className="text-[10px] text-amber-300 animate-pulse">Membaca file...</span>
+              )}
+              {selectedFile && !isReadingFile && (
+                <div className="flex items-center gap-1 text-[10px] text-emerald-300">
+                  <span className="truncate max-w-[120px]">{selectedFile.name}</span>
+                  <button
+                    onClick={clearFile}
+                    className="text-rose-400 hover:text-rose-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
               <button
-                disabled={isRelayRunning}
+                disabled={isRelayRunning || isReadingFile}
                 onClick={startAutoRelay}
                 className="flex-1 py-2 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2"
               >
@@ -794,7 +954,7 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Konfigurasi Project Brief & Gemini API</h3>
+              <h3 className="text-sm font-bold text-white">Konfigurasi Project Brief & AI API</h3>
               <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
@@ -810,7 +970,7 @@ export default function App() {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
                 <input
                   type="radio"
@@ -825,17 +985,56 @@ export default function App() {
                   checked={draftMode === 'live'}
                   onChange={() => setDraftMode('live')}
                 />
-                <span>Live Gemini Interactions API</span>
+                <span>Live AI API (Gemini & DeepSeek)</span>
               </label>
 
               {draftMode === 'live' && (
-                <input
-                  type="password"
-                  value={draftKey}
-                  onChange={(e) => setDraftKey(e.target.value)}
-                  placeholder="Tempel Gemini API Key (AQ.Ab8... atau AIzaSy...)"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white"
-                />
+                <div className="space-y-3 pt-1 pl-4 border-l-2 border-slate-800">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                      Prioritas AI Provider
+                    </label>
+                    <select
+                      value={draftProvider}
+                      onChange={(e) => setDraftProvider(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="auto">Auto (Gemini Utama → Pindah DeepSeek jika Limit)</option>
+                      <option value="gemini">Hanya Gemini (Google AI Studio)</option>
+                      <option value="deepseek">Hanya DeepSeek (deepseek-chat)</option>
+                    </select>
+                  </div>
+
+                  {draftProvider !== 'deepseek' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        Gemini API Key {draftProvider === 'auto' ? '(Utama)' : ''}
+                      </label>
+                      <input
+                        type="password"
+                        value={draftKey}
+                        onChange={(e) => setDraftKey(e.target.value)}
+                        placeholder="Tempel Gemini API Key (AIzaSy...)"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white"
+                      />
+                    </div>
+                  )}
+
+                  {draftProvider !== 'gemini' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        DeepSeek API Key {draftProvider === 'auto' ? '(Cadangan Otomatis)' : ''}
+                      </label>
+                      <input
+                        type="password"
+                        value={draftDeepseekKey}
+                        onChange={(e) => setDraftDeepseekKey(e.target.value)}
+                        placeholder="Tempel DeepSeek API Key (sk-...)"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white"
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -847,11 +1046,13 @@ export default function App() {
                 onClick={() => {
                   setProjectBrief(draftBrief);
                   setApiMode(draftMode);
+                  setAiProvider(draftProvider);
                   setGeminiApiKey(draftKey);
+                  setDeepseekApiKey(draftDeepseekKey);
                   setActiveModal(null);
                   showToast('Pengaturan disimpan.', 'success');
                 }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500"
               >
                 Simpan
               </button>

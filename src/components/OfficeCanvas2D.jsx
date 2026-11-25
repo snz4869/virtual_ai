@@ -8,6 +8,75 @@ import {
 import { buildOfficePath } from '../utils/pathfinding';
 import { playRetroTone } from '../utils/audio';
 
+// Daftar area padat (Dinding ruangan dengan celah pintu + Furnitur utama)
+const OFFICE_COLLIDERS = [
+  // Dinding luar kantor
+  { x: 0, y: 0, w: 1000, h: 20 },
+  { x: 0, y: 1200, w: 1000, h: 20 },
+  { x: 0, y: 0, w: 20, h: 1220 },
+  { x: 980, y: 0, w: 20, h: 1220 },
+
+  // Dinding Ruangan Director / Meeting (kiri atas, pintu bawah di x: 250..298)
+  { x: 330, y: 20, w: 10, h: 328 },
+  { x: 20, y: 340, w: 230, h: 10 },
+  { x: 298, y: 340, w: 42, h: 10 },
+  { x: 105, y: 115, w: 130, h: 145 }, // Meja rapat
+
+  // Dinding Pantry & Archive (kiri tengah & bawah, celah pintu di y: 410..458 & 840..888)
+  { x: 20, y: 360, w: 218, h: 10 },
+  { x: 230, y: 360, w: 10, h: 50 },
+  { x: 230, y: 458, w: 10, h: 320 },
+  { x: 20, y: 770, w: 218, h: 28 },
+  { x: 230, y: 790, w: 10, h: 50 },
+  { x: 230, y: 888, w: 10, h: 315 },
+  { x: 42, y: 395, w: 168, h: 62 }, // Dispenser & Vending machine
+  { x: 56, y: 650, w: 96, h: 46 },  // Meja kiri
+
+  // Meja Workstation Product Team (6 blok meja ganda)
+  { x: 415, y: 115, w: 96, h: 100 },
+  { x: 545, y: 115, w: 96, h: 100 },
+  { x: 415, y: 295, w: 96, h: 100 },
+  { x: 545, y: 295, w: 96, h: 100 },
+  { x: 415, y: 475, w: 96, h: 100 },
+  { x: 545, y: 475, w: 96, h: 100 },
+
+  // Sofa & Rak Buku Lounge (kanan atas)
+  { x: 754, y: 42, w: 198, h: 42 },
+  { x: 756, y: 130, w: 38, h: 86 },
+  { x: 924, y: 120, w: 38, h: 86 },
+  { x: 825, y: 152, w: 70, h: 40 },
+  { x: 820, y: 225, w: 95, h: 36 },
+
+  // Meja Workstation CX Team (kanan)
+  { x: 756, y: 355, w: 205, h: 44 },
+  { x: 760, y: 540, w: 96, h: 100 },
+  { x: 866, y: 540, w: 96, h: 100 },
+  { x: 760, y: 790, w: 96, h: 100 },
+  { x: 866, y: 790, w: 96, h: 100 },
+  { x: 760, y: 1020, w: 96, h: 100 },
+  { x: 866, y: 1020, w: 96, h: 100 },
+
+  // Dinding & Meja Pingpong Recreation Area (pintu atas di x: 510..564)
+  { x: 356, y: 766, w: 154, h: 10 },
+  { x: 564, y: 766, w: 150, h: 10 },
+  { x: 356, y: 766, w: 10, h: 434 },
+  { x: 706, y: 766, w: 10, h: 434 },
+  { x: 478, y: 895, w: 114, h: 150 }, // Meja Pingpong
+  { x: 645, y: 905, w: 42, h: 115 },  // Sofa Recreation
+];
+
+// Cek apakah area kaki karakter (hitbox 18x12 di sekitar kaki) menabrak objek
+function isPositionBlocked(x, y) {
+  const footBox = { x: x - 9, y: y + 4, w: 18, h: 12 };
+  return OFFICE_COLLIDERS.some(
+    (box) =>
+      footBox.x < box.x + box.w &&
+      footBox.x + footBox.w > box.x &&
+      footBox.y < box.y + box.h &&
+      footBox.y + footBox.h > box.y
+  );
+}
+
 function drawPixelBox(ctx, x, y, w, h, fill, stroke = '#2c221e', lineWidth = 2) {
   ctx.fillStyle = fill;
   ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
@@ -231,7 +300,8 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   const isWorking = !isDirector && entity.state === 'WORKING';
 
   const bob = isWalking ? Math.abs(Math.sin(entity.walkPhase || 0)) * -4 : 0;
-  const px = Math.round(entity.x);
+  const shakeX = entity.hitTimer > 0 ? Math.sin(timeSec * 65) * 4 : 0;
+  const px = Math.round(entity.x + shakeX);
   const py = Math.round(entity.y + bob);
 
   if (isDirector || isSelected) {
@@ -306,6 +376,31 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
     ctx.fillStyle = '#0f172a';
     ctx.fillText(text, px, by + 13.5);
   }
+
+  if (isDirector && entity.actionTimer > 0) {
+    ctx.save();
+    const tx = entity.actionTarget ? entity.actionTarget.x : px + 36;
+    const ty = entity.actionTarget ? entity.actionTarget.y - 6 : py - 4;
+
+    // Garis cambuk / ayunan melengkung
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(px + 6, py - 4);
+    ctx.quadraticCurveTo((px + tx) / 2, py - 26, tx, ty);
+    ctx.stroke();
+
+    // Teks efek kartun "PLAK!"
+    if (entity.actionTarget) {
+      ctx.font = 'bold 13px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.strokeText('PLAK!', tx, ty - 14);
+      ctx.fillText('PLAK!', tx, ty - 14);
+    }
+    ctx.restore();
+  }
 }
 
 export default function OfficeCanvas2D({
@@ -331,6 +426,45 @@ export default function OfficeCanvas2D({
         keysRef.current[key] = true;
         if (directorRef?.current) {
           directorRef.current.pathQueue = [];
+        }
+      }
+
+      if (e.code === 'Space' || key === 'e') {
+        e.preventDefault();
+        const dir = directorRef?.current;
+        const npcs = npcRef?.current || [];
+        if (!dir) return;
+
+        // Cari NPC terdekat dalam jarak 75 pixel
+        let nearest = null;
+        let minDist = 75;
+        npcs.forEach((npc) => {
+          const d = Math.hypot(npc.x - dir.x, npc.y - dir.y);
+          if (d < minDist) {
+            minDist = d;
+            nearest = npc;
+          }
+        });
+
+        // Picu animasi ayunan tangan/cambuk Director
+        dir.actionTimer = 0.28;
+        dir.actionTarget = nearest ? { x: nearest.x, y: nearest.y } : null;
+        playRetroTone('slap', fxEnabled);
+
+        if (nearest) {
+          const reactions = ['Ampun Bos! 😵', 'Siap kerja! 🫡', 'Aduh! ⚡', 'Oke lembur! 💻'];
+          nearest.hitTimer = 0.45;
+          nearest.statusBubble = reactions[Math.floor(Math.random() * reactions.length)];
+          nearest.bubbleClearTimer = 2.0;
+
+          // Dorong sedikit menjauh (efek kartun) jika lantai aman
+          const angle = Math.atan2(nearest.y - dir.y, nearest.x - dir.x);
+          const pushX = nearest.x + Math.cos(angle) * 14;
+          const pushY = nearest.y + Math.sin(angle) * 14;
+          if (!isPositionBlocked(pushX, pushY)) {
+            nearest.x = pushX;
+            nearest.y = pushY;
+          }
         }
       }
     };
@@ -422,8 +556,13 @@ export default function OfficeCanvas2D({
 
         if (vx !== 0 || vy !== 0) {
           const len = Math.hypot(vx, vy);
-          dir.x = Math.max(36, Math.min(WORLD_W - 36, dir.x + (vx / len) * dirSpeed * dt));
-          dir.y = Math.max(36, Math.min(WORLD_H - 36, dir.y + (vy / len) * dirSpeed * dt));
+          const nextX = dir.x + (vx / len) * dirSpeed * dt;
+          const nextY = dir.y + (vy / len) * dirSpeed * dt;
+
+          // Cek sumbu X dan Y terpisah agar karakter bisa meluncur di tepi objek
+          if (!isPositionBlocked(nextX, dir.y)) dir.x = nextX;
+          if (!isPositionBlocked(dir.x, nextY)) dir.y = nextY;
+
           dir.isMoving = true;
           dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
         } else if (dir.pathQueue && dir.pathQueue.length > 0) {
@@ -431,7 +570,7 @@ export default function OfficeCanvas2D({
           const dx = nextPt.x - dir.x;
           const dy = nextPt.y - dir.y;
           const dist = Math.hypot(dx, dy);
-          if (dist < 4) {
+          if (dist < 6) {
             dir.x = nextPt.x;
             dir.y = nextPt.y;
             dir.pathQueue.shift();
@@ -453,7 +592,18 @@ export default function OfficeCanvas2D({
       const npcs = npcRef?.current || [];
       const npcSpeed = 180;
 
+      if (dir?.actionTimer > 0) {
+        dir.actionTimer = Math.max(0, dir.actionTimer - dt);
+      }
+
       npcs.forEach((npc) => {
+        if (npc.hitTimer > 0) npc.hitTimer = Math.max(0, npc.hitTimer - dt);
+        if (npc.bubbleClearTimer > 0) {
+          npc.bubbleClearTimer -= dt;
+          if (npc.bubbleClearTimer <= 0 && npc.state === 'IDLE') {
+            npc.statusBubble = '';
+          }
+        }
         if (npc.state === 'WALKING' && npc.pathQueue && npc.pathQueue.length > 0) {
           const target = npc.pathQueue[0];
           const dx = target.x - npc.x;
@@ -544,12 +694,12 @@ export default function OfficeCanvas2D({
   }, [simSpeed, fxEnabled, selectedNpcId, npcRef, directorRef, onSelectNpc, onClearInspector]);
 
   return (
-    <div className="relative w-full h-full overflow-auto bg-[#1e1b24] flex items-start justify-center p-3">
+    <div className="relative w-full h-full overflow-hidden bg-[#1e1b24] flex items-center justify-center p-2">
       <canvas
         ref={canvasRef}
         width={WORLD_W}
         height={WORLD_H}
-        className="rounded-xl shadow-2xl border-2 border-slate-700 max-w-full h-auto"
+        className="rounded-xl shadow-2xl border-2 border-slate-700 max-w-full max-h-full w-auto h-full object-contain"
         style={{ imageRendering: 'pixelated' }}
       />
     </div>

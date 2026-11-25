@@ -81,27 +81,90 @@ export const OFFICE_ROOMS = [
 ];
 
 export const WAYPOINTS = {
-  directorDesk: { x: 175, y: 185 },
+  directorDesk: { x: 175, y: 92 },
+  director_home: { x: 175, y: 92 },
   directorDoor: { x: 274, y: 375 },
+  director_report: { x: 265, y: 185 },
+
   hallwayNorth: { x: 285, y: 420 },
   hallwayCenter: { x: 285, y: 690 },
   hallwaySouth: { x: 535, y: 690 },
 
-  // Product Team Desks (Alex & Raka)
-  leadDesk: { x: 470, y: 235 },
-  devDesk: { x: 605, y: 235 },
-  devDesk2: { x: 470, y: 415 },
+  // Product Team Desks (Berdiri tepat di depan kursi, tidak menumpuk meja)
+  leadDesk: { x: 463, y: 92 },
+  desk_alex: { x: 463, y: 92 },
+  devDesk: { x: 593, y: 92 },
+  desk_raka: { x: 593, y: 92 },
 
-  // CX Team Desk (Nadia)
-  qaDesk: { x: 850, y: 650 },
-  qaDesk2: { x: 850, y: 920 },
+  // CX Team Desk (Nadia - berdiri di depan kursi baris pertama)
+  qaDesk: { x: 808, y: 515 },
+  desk_nadia: { x: 808, y: 515 },
 
-  // Lounge & Recreation
-  loungeSofa: { x: 855, y: 175 },
+  // Lounge & Recreation (Di ruang kosong tengah karpet lounge)
+  loungeSofa: { x: 860, y: 115 },
+  lounge_alex: { x: 815, y: 112 },
+  lounge_raka: { x: 860, y: 122 },
+  lounge_nadia: { x: 902, y: 112 },
   recreationDoor: { x: 537, y: 745 },
-  pingPongSpot: { x: 535, y: 960 },
+  pingPongSpot: { x: 535, y: 860 },
   pantrySpot: { x: 130, y: 500 },
 };
+
+export const OFFICE_COLLIDERS = [
+  // Dinding luar kantor
+  { x: 0, y: 0, w: 1000, h: 20 },
+  { x: 0, y: 1200, w: 1000, h: 20 },
+  { x: 0, y: 0, w: 20, h: 1220 },
+  { x: 980, y: 0, w: 20, h: 1220 },
+
+  // Dinding & Meja Meeting / Director (pintu bawah di x: 250..298)
+  { x: 330, y: 20, w: 10, h: 328 },
+  { x: 20, y: 340, w: 230, h: 10 },
+  { x: 298, y: 340, w: 42, h: 10 },
+  { x: 105, y: 115, w: 130, h: 145 },
+
+  // Dinding & Furnitur Pantry / Archive (pintu kanan di y: 410..458 & 840..888)
+  { x: 20, y: 360, w: 218, h: 10 },
+  { x: 230, y: 360, w: 10, h: 50 },
+  { x: 230, y: 458, w: 10, h: 320 },
+  { x: 20, y: 770, w: 218, h: 28 },
+  { x: 230, y: 790, w: 10, h: 50 },
+  { x: 230, y: 888, w: 10, h: 315 },
+  { x: 42, y: 395, w: 168, h: 62 },
+  { x: 56, y: 650, w: 96, h: 46 },
+
+  // Meja Workstation Product Team
+  { x: 415, y: 115, w: 96, h: 100 },
+  { x: 545, y: 115, w: 96, h: 100 },
+  { x: 415, y: 295, w: 96, h: 100 },
+  { x: 545, y: 295, w: 96, h: 100 },
+  { x: 415, y: 475, w: 96, h: 100 },
+  { x: 545, y: 475, w: 96, h: 100 },
+
+  // Sofa & Rak Buku Lounge
+  { x: 754, y: 42, w: 198, h: 42 },
+  { x: 756, y: 130, w: 38, h: 86 },
+  { x: 924, y: 120, w: 38, h: 86 },
+  { x: 825, y: 152, w: 70, h: 40 },
+  { x: 820, y: 225, w: 95, h: 36 },
+
+  // Meja Workstation CX Team
+  { x: 756, y: 355, w: 205, h: 44 },
+  { x: 760, y: 540, w: 96, h: 100 },
+  { x: 866, y: 540, w: 96, h: 100 },
+  { x: 760, y: 790, w: 96, h: 100 },
+  { x: 866, y: 790, w: 96, h: 100 },
+  { x: 760, y: 1020, w: 96, h: 100 },
+  { x: 866, y: 1020, w: 96, h: 100 },
+
+  // Dinding & Meja Pingpong Recreation Area (pintu atas di x: 510..564)
+  { x: 356, y: 766, w: 154, h: 10 },
+  { x: 564, y: 766, w: 150, h: 10 },
+  { x: 356, y: 766, w: 10, h: 434 },
+  { x: 706, y: 766, w: 10, h: 434 },
+  { x: 478, y: 895, w: 114, h: 150 },
+  { x: 645, y: 905, w: 42, h: 115 },
+];
 
 export const DEFAULT_AGENTS = [
   {
@@ -158,16 +221,7 @@ export const DEFAULT_BRIEF =
   'Bangun aplikasi Web Dashboard untuk monitoring tugas harian dengan fitur tambah tugas, filter status, dan ringkasan progres.';
 
 export const PRESET_PROMPTS = [
-  {
-    label: 'Landing Page SaaS',
-    brief: 'Buat landing page modern untuk produk SaaS manajemen keuangan UMKM lengkap dengan bagian Hero, Fitur Utama, dan Tabel Harga.',
-  },
-  {
-    label: 'REST API & Auth',
-    brief: 'Rancang arsitektur dan kode endpoint REST API untuk sistem autentikasi JWT (Login, Register, Refresh Token) beserta validasi input.',
-  },
-  {
-    label: 'Dashboard Analytics',
-    brief: 'Bangun komponen dashboard interaktif untuk menampilkan metrik penjualan harian, grafik tren bulanan, dan tabel transaksi terbaru.',
-  },
+  'Hitung akar pangkat 3 dari 34 beserta langkah cepatnya.',
+  'Buatkan spesifikasi dan kode endpoint REST API untuk sistem manajemen antrean (ambil nomor, panggil berikutnya, cek sisa antrean).',
+  'Buat landing page modern untuk produk SaaS manajemen keuangan UMKM lengkap dengan bagian Hero, Fitur Utama, dan Tabel Harga.',
 ];

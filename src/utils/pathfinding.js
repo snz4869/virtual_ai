@@ -1,66 +1,114 @@
-import { WAYPOINTS } from '../constants/officeConfig';
+import { WORLD_W, WORLD_H, WAYPOINTS, OFFICE_COLLIDERS } from '../constants/officeConfig';
 
-/**
- * Menghitung jalur gerak karakter melewati koridor tengah
- * agar tidak menembus dinding ruangan tertutup (Director/Meeting, Pantry, Archive, Recreation).
- */
+const CELL = 20;
+const COLS = Math.ceil(WORLD_W / CELL);
+const ROWS = Math.ceil(WORLD_H / CELL);
+
+let blockedGrid = null;
+
+function isFootBlocked(x, y) {
+  const footBox = { x: x - 9, y: y + 4, w: 18, h: 12 };
+  return OFFICE_COLLIDERS.some(
+    (b) =>
+      footBox.x < b.x + b.w &&
+      footBox.x + footBox.w > b.x &&
+      footBox.y < b.y + b.h &&
+      footBox.y + footBox.h > b.y
+  );
+}
+
+function getGrid() {
+  if (blockedGrid) return blockedGrid;
+  blockedGrid = Array.from({ length: ROWS }, (_, r) =>
+    Array.from({ length: COLS }, (_, c) => {
+      const cx = c * CELL + CELL / 2;
+      const cy = r * CELL + CELL / 2;
+      return isFootBlocked(cx, cy);
+    })
+  );
+  return blockedGrid;
+}
+
+// Jika titik klik berada di atas meja/dinding, cari sel lantai terdekat yang bebas
+function findNearestWalkable(grid, col, row) {
+  const c0 = Math.max(0, Math.min(COLS - 1, col));
+  const r0 = Math.max(0, Math.min(ROWS - 1, row));
+  if (!grid[r0][c0]) return { c: c0, r: r0 };
+
+  for (let radius = 1; radius <= 12; radius++) {
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        const nr = r0 + dr;
+        const nc = c0 + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !grid[nr][nc]) {
+          return { c: nc, r: nr };
+        }
+      }
+    }
+  }
+  return { c: c0, r: r0 };
+}
+
 export function buildOfficePath(fromX, fromY, target) {
   const dest =
     typeof target === 'string'
       ? WAYPOINTS[target] || WAYPOINTS.hallwayCenter
       : target || WAYPOINTS.hallwayCenter;
 
-  const path = [];
+  const grid = getGrid();
+  const start = findNearestWalkable(grid, Math.floor(fromX / CELL), Math.floor(fromY / CELL));
+  const goal = findNearestWalkable(grid, Math.floor(dest.x / CELL), Math.floor(dest.y / CELL));
 
-  const inMeeting = fromX < 334 && fromY < 344;
-  const inPantry = fromX < 234 && fromY >= 364 && fromY <= 774;
-  const inArchive = fromX < 234 && fromY > 794;
-  const inRecreation = fromX >= 360 && fromX <= 710 && fromY >= 770;
-
-  // 1. Keluar dari ruangan tertutup terlebih dahulu
-  if (inMeeting) {
-    path.push({ x: 274, y: 310 });
-    path.push(WAYPOINTS.directorDoor);
-  } else if (inPantry) {
-    path.push({ x: 205, y: 434 });
-    path.push({ x: 280, y: 434 });
-  } else if (inArchive) {
-    path.push({ x: 205, y: 864 });
-    path.push({ x: 280, y: 864 });
-  } else if (inRecreation) {
-    path.push({ x: 537, y: 810 });
-    path.push(WAYPOINTS.recreationDoor);
+  if (start.c === goal.c && start.r === goal.r) {
+    return [{ x: goal.c * CELL + CELL / 2, y: goal.r * CELL + CELL / 2 }];
   }
 
-  // 2. Lewat koridor penghubung utama
-  path.push(WAYPOINTS.hallwayCenter);
+  const open = [{ ...start, g: 0, f: Math.hypot(goal.c - start.c, goal.r - start.r), parent: null }];
+  const closed = new Set();
+  const key = (c, r) => `${c},${r}`;
 
-  // 3. Masuk ke pintu ruangan tujuan jika tujuan berada di dalam ruangan tertutup
-  const destInMeeting = dest.x < 334 && dest.y < 344;
-  const destInPantry = dest.x < 234 && dest.y >= 364 && dest.y <= 774;
-  const destInArchive = dest.x < 234 && dest.y > 794;
-  const destInRecreation = dest.x >= 360 && dest.x <= 710 && dest.y >= 770;
+  const dirs = [
+    [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+    [1, 1, 1.41], [1, -1, 1.41], [-1, 1, 1.41], [-1, -1, 1.41],
+  ];
 
-  if (destInMeeting) {
-    path.push(WAYPOINTS.directorDoor);
-    path.push({ x: 274, y: 310 });
-  } else if (destInRecreation) {
-    path.push(WAYPOINTS.hallwaySouth);
-    path.push(WAYPOINTS.recreationDoor);
-    path.push({ x: 537, y: 810 });
-  } else if (destInPantry) {
-    path.push({ x: 280, y: 434 });
-    path.push({ x: 205, y: 434 });
-  } else if (destInArchive) {
-    path.push({ x: 280, y: 864 });
-    path.push({ x: 205, y: 864 });
+  while (open.length > 0) {
+    open.sort((a, b) => a.f - b.f);
+    const curr = open.shift();
+    const k = key(curr.c, curr.r);
+    if (closed.has(k)) continue;
+    closed.add(k);
+
+    if (curr.c === goal.c && curr.r === goal.r) {
+      const waypoints = [];
+      let node = curr;
+      while (node && node.parent) {
+        waypoints.unshift({
+          x: node.c * CELL + CELL / 2,
+          y: node.r * CELL + CELL / 2,
+        });
+        node = node.parent;
+      }
+      return waypoints;
+    }
+
+    for (const [dc, dr, cost] of dirs) {
+      const nc = curr.c + dc;
+      const nr = curr.r + dr;
+      if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
+      if (grid[nr][nc] || closed.has(key(nc, nr))) continue;
+      // Cegah potong sudut diagonal melewati dinding
+      if (dc !== 0 && dr !== 0 && (grid[curr.r][nc] || grid[nr][curr.c])) continue;
+
+      const g = curr.g + cost;
+      const h = Math.hypot(goal.c - nc, goal.r - nr);
+      open.push({ c: nc, r: nr, g, f: g + h, parent: curr });
+    }
   }
 
-  path.push({ x: dest.x, y: dest.y });
-  return path;
+  return [{ x: dest.x, y: dest.y }];
 }
 
-// Alias kompatibilitas untuk OfficeCanvas2D
 export function buildNavigationPath(startPos, targetKey) {
   return buildOfficePath(startPos.x, startPos.y, targetKey);
 }

@@ -4,77 +4,103 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { systemInstruction, prompt, context, clientApiKey } = req.body || {};
-    const apiKey = (clientApiKey || process.env.GEMINI_API_KEY || '').trim();
+    const {
+      provider = 'auto',
+      systemPrompt,
+      userPrompt,
+      apiKey,
+      deepseekApiKey,
+      fileData, // { base64, mimeType, fileName }
+    } = req.body || {};
 
-    if (!apiKey) {
-      return res.status(401).json({
-        error: 'API Key Gemini belum dikonfigurasi. Isi melalui Settings atau Environment Variable GEMINI_API_KEY.'
-      });
-    }
+    const finalGeminiKey = apiKey?.trim() || process.env.GEMINI_API_KEY;
+    const finalDeepseekKey = deepseekApiKey?.trim() || process.env.DEEPSEEK_API_KEY;
 
-    const candidateModels = [
-      'gemini-3.5-flash',
-      'gemini-2.5-flash-lite',
-      'gemini-2.5-flash',
-      'gemini-4-hydrogen'
-    ];
-
-    const fullInput = `[SYSTEM / SOP PERAN ANDA]\n${systemInstruction}\n\n[INSTRUKSI DIRECTOR]\n${prompt}\n\n[RIWAYAT KERJA TIM]\n${context || 'Belum ada riwayat sebelumnya.'}`;
-
-    let lastError = 'Unknown error';
-
-    for (const modelName of candidateModels) {
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    const callDeepSeek = async () => {
+      if (!finalDeepseekKey) throw new Error('DeepSeek API Key belum diisi.');
+      
+      // DeepSeek tidak mendukung inlineData secara native, jadi kita hanya kirim teks
+      // (Untuk file, gunakan Gemini)
+      const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey
+          Authorization: `Bearer ${finalDeepseekKey}`,
         },
         body: JSON.stringify({
-          model: modelName,
-          input: fullInput
-        })
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        let text = data.output_text;
+      const dsData = await dsRes.json();
+      if (!dsRes.ok) throw new Error(dsData?.error?.message || `DeepSeek HTTP ${dsRes.status}`);
+      const text = dsData?.choices?.[0]?.message?.content;
+      if (!text) throw new Error('Respons DeepSeek kosong.');
+      return { text, modelUsed: 'deepseek-chat' };
+    };
 
-        if (!text && Array.isArray(data.steps)) {
-          for (const step of data.steps) {
-            if (step.type === 'model_output' && Array.isArray(step.content)) {
-              const block = step.content.find((c) => c.type === 'text');
-              if (block?.text) text = block.text;
-            }
-          }
-        }
-        if (!text && Array.isArray(data.outputs)) {
-          const out = data.outputs.find((o) => o.type === 'text' || o.text);
-          if (out?.text) text = out.text;
-        }
-
-        if (!text) {
-          return res.status(502).json({ error: 'Format respons Gemini Interactions API tidak terbaca.' });
-        }
-
-        return res.status(200).json({ text, modelUsed: modelName });
-      }
-
-      const errBody = await response.json().catch(() => ({}));
-      lastError = errBody.error?.message || `HTTP ${response.status}`;
-
-      if (response.status === 503 || response.status === 429) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-
-      return res.status(response.status).json({ error: lastError });
+    if (provider === 'deepseek') {
+      return res.status(200).json(await callDeepSeek());
     }
 
-    return res.status(503).json({
-      error: `Semua model Gemini sedang sibuk. Detail terakhir: ${lastError}`
-    });
+    if (!finalGeminiKey) {
+      if (finalDeepseekKey) return res.status(200).json(await callDeepSeek());
+      return res.status(400).json({ error: 'Gemini API Key belum dikonfigurasi.' });
+    }
+
+    // Model 3.5 Flash-Lite (2.5 sudah tidak tersedia untuk proyek baru)
+    const candidateModels = ['gemini-3.5-flash-lite'];
+
+    let lastError = null;
+    for (const modelName of candidateModels) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(finalGeminiKey)}`;
+      
+      // Susun parts: file dulu (jika ada), lalu teks prompt
+      const parts = [];
+      if (fileData && fileData.base64) {
+        parts.push({
+          inlineData: {
+            mimeType: fileData.mimeType,
+            data: fileData.base64,
+          },
+        });
+      }
+      parts.push({ text: userPrompt || '' });
+
+      const gRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt || '' }] },
+          contents: [{ role: 'user', parts }], // <-- parts yang sudah disusun
+        }),
+      });
+
+      const gData = await gRes.json();
+      if (gRes.ok) {
+        const text = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          return res.status(200).json({ text, modelUsed: modelName });
+        }
+      }
+
+      lastError = gData?.error?.message || `Gemini HTTP ${gRes.status}`;
+      if ([404, 429, 503].includes(gRes.status)) {
+        await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+      break;
+    }
+
+    if (finalDeepseekKey) {
+      return res.status(200).json(await callDeepSeek());
+    }
+
+    return res.status(502).json({ error: lastError || 'Semua model Gemini gagal merespons.' });
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
