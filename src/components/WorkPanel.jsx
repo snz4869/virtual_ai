@@ -3,14 +3,15 @@ import {
   Clock,
   Cpu,
   GitBranch,
+  HelpCircle,
   MessageSquarePlus,
   Play,
   Square,
   Trash2,
-  Zap,
+  User,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
-import { PRESET_PROMPTS } from '../constants/officeConfig';
+import { FULLSTACK_AGENT_ID, PRESET_PROMPTS } from '../constants/officeConfig';
 
 function formatDuration(ms) {
   if (!ms || ms < 0) return null;
@@ -37,8 +38,10 @@ export default function WorkPanel({
   onClearFile,
   workflowMode,
   onChangeWorkflowMode,
-  fastAgentId,
-  onChangeFastAgentId,
+  grillingEnabled,
+  onToggleGrilling,
+  pendingGrilling,
+  onOpenGrillingModal,
   agents,
   isRelayRunning,
   onStartRelay,
@@ -167,66 +170,83 @@ export default function WorkPanel({
                     ? 'bg-indigo-600 text-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Alur lengkap: Alex → Spesialis → Raka ↔ Nadia QA"
+                title="Alur tim 3 agen: Alex → Spesialis → Raka ↔ Nadia QA"
               >
                 <GitBranch className="w-3 h-3" />
-                <span>Full Relay</span>
+                <span>Tim (3 Agen)</span>
               </button>
               <button
                 type="button"
                 disabled={isRelayRunning}
-                onClick={() => onChangeWorkflowMode('fast')}
+                onClick={() => onChangeWorkflowMode('solo')}
                 className={`px-2 py-1 rounded-md font-semibold flex items-center gap-1 ${
-                  workflowMode === 'fast'
-                    ? 'bg-emerald-600 text-white'
+                  workflowMode === 'solo'
+                    ? 'bg-sky-600 text-white'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Cepat & hemat kuota: langsung ke 1 agen"
+                title="1 Agen Full-Stack menangani analisis, kode & self-check sendirian (lebih hemat token)"
               >
-                <Zap className="w-3 h-3" />
-                <span>Fast</span>
+                <User className="w-3 h-3" />
+                <span>Solo Full-Stack</span>
               </button>
             </div>
 
-            {workflowMode === 'fast' && (
-              <select
-                disabled={isRelayRunning}
-                value={fastAgentId}
-                onChange={(e) => onChangeFastAgentId(e.target.value)}
-                className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-200 focus:outline-none focus:border-emerald-500"
-              >
-                {agents.map((ag) => (
-                  <option key={ag.id} value={ag.id}>
-                    {ag.name}
-                  </option>
-                ))}
-              </select>
-            )}
+            <button
+              type="button"
+              disabled={isRelayRunning}
+              onClick={onToggleGrilling}
+              className={`px-2 py-1 rounded-lg text-[10px] font-semibold border flex items-center gap-1 disabled:opacity-50 ${
+                grillingEnabled
+                  ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/50 hover:bg-indigo-500/30'
+                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+              }`}
+              title="Konfirmasi keputusan inti (core-only) sebelum eksekusi akhir"
+            >
+              <HelpCircle className="w-3 h-3" />
+              <span>Grilling: {grillingEnabled ? 'ON' : 'OFF'}</span>
+            </button>
           </div>
         </div>
+
+        {pendingGrilling && (
+          <div className="p-2.5 rounded-xl bg-indigo-950/70 border border-indigo-500/50 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-indigo-200 truncate">
+                ❓ {pendingGrilling.alexName} menunggu konfirmasi inti (Ronde {pendingGrilling.round}/{pendingGrilling.maxRounds})
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenGrillingModal}
+              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold shrink-0"
+            >
+              Buka Pertanyaan
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <button
             disabled={isRelayRunning || isReadingFile}
             onClick={onStartRelay}
             className={`flex-1 py-2 px-3.5 rounded-xl disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2 ${
-              workflowMode === 'fast'
-                ? 'bg-emerald-600 hover:bg-emerald-500'
+              workflowMode === 'solo'
+                ? 'bg-sky-600 hover:bg-sky-500'
                 : 'bg-indigo-600 hover:bg-indigo-500'
             }`}
           >
-            {workflowMode === 'fast' ? (
+            {workflowMode === 'solo' ? (
               <>
-                <Zap className="w-3.5 h-3.5" />
+                <User className="w-3.5 h-3.5" />
                 <span>
-                  Jalankan Cepat (
-                  {agents.find((a) => a.id === fastAgentId)?.name || agents[0]?.name})
+                  Jalankan Solo (
+                  {agents.find((a) => a.id === FULLSTACK_AGENT_ID)?.name || 'Kael'} • Full-Stack)
                 </span>
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5" />
-                <span>Jalankan Tim (Auto-Relay)</span>
+                <span>Jalankan Tim (3 Agen Relay)</span>
               </>
             )}
           </button>
@@ -277,9 +297,8 @@ export default function WorkPanel({
               Belum ada log pada <strong>{activeSession.title}</strong>.
             </p>
             <p className="text-[11px] text-slate-500">
-              Coba preset <strong>Landing Page (SaaS)</strong> untuk melihat{' '}
-              <strong>Streaming + Live Preview HTML</strong>, atau pakai mode{' '}
-              <strong>Fast</strong> untuk pertanyaan singkat.
+              Pilih <strong>Tim (3 Agen)</strong> untuk kolaborasi penuh dengan QA, atau{' '}
+              <strong>Solo Full-Stack</strong> untuk 1 agen mandiri yang lebih ringkas &amp; hemat token.
             </p>
           </div>
         ) : (

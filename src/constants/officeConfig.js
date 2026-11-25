@@ -69,14 +69,15 @@ export const OFFICE_ROOMS = [
   },
   {
     id: 'extra_office',
-    label: 'Archive & Ops',
+    label: 'Full-Stack Studio (Kael)',
     x: 24,
     y: 794,
     w: 210,
     h: 402,
-    floorColor: '#e7e2f0',
-    tileAlt: '#dcd6e8',
+    floorColor: '#dce7f3',
+    tileAlt: '#d1dfee',
     door: { x: 234, y: 840, h: 48, side: 'right' },
+    floatingTag: 'Full-Stack Lab',
   },
 ];
 
@@ -86,6 +87,7 @@ export const MEETING_SEATS = {
   alex: { x: 248, y: 178, facing: 'left' },     // Kanan tengah (Tech Lead)
   raka: { x: 248, y: 133, facing: 'left' },     // Kanan atas (Developer)
   nadia: { x: 248, y: 223, facing: 'left' },    // Kanan bawah (QA)
+  kael: { x: 170, y: 92, facing: 'down' },      // Sisi atas meja (Full-Stack)
   extra: [
     { x: 92, y: 133, facing: 'right' },         // Kiri atas (Spesialis 1)
     { x: 92, y: 223, facing: 'right' },         // Kiri bawah (Spesialis 2)
@@ -109,6 +111,9 @@ export const WAYPOINTS = {
   devDesk: { x: 593, y: 92 },
   desk_raka: { x: 593, y: 92 },
 
+  // Full-Stack Studio (Kael - ruang pribadi kiri bawah)
+  desk_kael: { x: 124, y: 930 },
+
   // CX Team Desk (Nadia - berdiri di depan kursi baris pertama)
   qaDesk: { x: 808, y: 515 },
   desk_nadia: { x: 808, y: 515 },
@@ -118,6 +123,7 @@ export const WAYPOINTS = {
   lounge_alex: { x: 815, y: 112 },
   lounge_raka: { x: 860, y: 122 },
   lounge_nadia: { x: 902, y: 112 },
+  lounge_kael: { x: 860, y: 100 },
   recreationDoor: { x: 537, y: 745 },
   pingPongSpot: { x: 535, y: 868 },
   pingPongSouth: { x: 535, y: 1068 },
@@ -144,8 +150,12 @@ export const OFFICE_COLLIDERS = [
   { x: 20, y: 770, w: 218, h: 28 },
   { x: 230, y: 790, w: 10, h: 50 },
   { x: 230, y: 888, w: 10, h: 315 },
+  // Furnitur Pantry & Full-Stack Studio (Kael)
   { x: 42, y: 395, w: 168, h: 62 },
   { x: 56, y: 650, w: 96, h: 46 },
+  { x: 76, y: 952, w: 96, h: 46 },
+  { x: 34, y: 1136, w: 84, h: 44 },
+  { x: 146, y: 1126, w: 72, h: 54 },
 
   // Meja Workstation Product Team
   { x: 415, y: 115, w: 96, h: 100 },
@@ -188,7 +198,8 @@ export const AVAILABLE_MODELS = [
   { id: 'deepseek-chat', label: 'DeepSeek Chat' },
 ];
 
-export const CORE_AGENT_IDS = ['alex', 'raka', 'nadia'];
+export const FULLSTACK_AGENT_ID = 'kael';
+export const CORE_AGENT_IDS = ['alex', 'raka', 'nadia', FULLSTACK_AGENT_ID];
 
 export const EXTRA_AGENT_SLOTS = [
   {
@@ -257,7 +268,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_alex,
     deskSpot: WAYPOINTS.desk_alex,
     deskRect: { x: 415, y: 115, w: 96, h: 46 },
-    sop: 'Fokus HANYA pada Perintah Director. Klasifikasikan skala tugas: (1) Jika tugas singkat/hitungan/pertanyaan langsung, buat kerangka jawab maks. 2 poin tanpa menulis jawaban akhir atau kode; (2) Jika tugas kompleks/teknis/kreatif, susun spesifikasi, struktur, dan batasan eksekusi agar Raka tidak overengineering. Dilarang menulis hasil akhir.',
+    sop: 'Fokus HANYA pada Perintah Director. Terapkan Grilling Core-Only: (1) Jika tugas singkat/hitungan atau keputusan inti sudah jelas, langsung susun Kontrak Kerja Ringkas (cakupan inti + batasan anti-bloat) lalu tutup dengan [STATUS: READY]; (2) Jika ada keputusan CORE/penting yang masih ambigu, ajukan maks. 3 pertanyaan singkat (format ❓ Q1 + ➡️ rekomendasi) khusus fitur inti saja (hal minor langsung serahkan ke Raka) lalu tutup dengan [STATUS: GRILLING]. Dilarang menulis hasil akhir atau kode.',
   },
   {
     id: 'raka',
@@ -274,7 +285,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_raka,
     deskSpot: WAYPOINTS.desk_raka,
     deskRect: { x: 545, y: 115, w: 96, h: 46 },
-    sop: 'Eksekusi hasil akhir secara langsung berdasarkan Perintah Director dan kerangka Alex. Jangan mengulang rencana Alex. Tulis kode lengkap 100% dari awal hingga penutup akhir (seperti </html>) tanpa pernah terpotong, tanpa "// ...", dan tanpa placeholder. Jika membuat HTML/UI, buat struktur yang bersih, padat, dan efisien agar seluruh kode selesai utuh dalam satu respons.',
+    sop: 'Eksekusi hasil akhir secara langsung, ringkas, dan on-point berdasarkan Kontrak Kerja Alex serta keputusan Director. Jangan mengulang rencana Alex dan jangan menambah fitur di luar kontrak. Tulis kode lengkap 100% dari awal hingga penutup akhir (seperti </html>) tanpa terpotong, tanpa "// ...", dan tanpa placeholder, dengan struktur yang ramping dan padat.',
   },
   {
     id: 'nadia',
@@ -292,6 +303,23 @@ export const DEFAULT_AGENTS = [
     deskSpot: WAYPOINTS.desk_nadia,
     deskRect: { x: 760, y: 540, w: 96, h: 46 },
     sop: 'Audit hasil kerja Raka terhadap Perintah Director. Jika semua syarat terpenuhi, akurat, dan bebas bug, tutup laporan dengan label persis: [STATUS: VERIFIED]. Jika ada kekurangan, bug, atau syarat belum terpenuhi, tuliskan poin perbaikan spesifik yang harus dikerjakan Raka dan tutup dengan label persis: [STATUS: REVISED].'
+  },
+  {
+    id: FULLSTACK_AGENT_ID,
+    name: 'Kael',
+    role: 'Full-Stack Engineer (Solo)',
+    preferredModel: 'auto',
+    accentHex: '#0ea5e9',
+    accentLight: '#7dd3fc',
+    badgeClass: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+    avatarBg: 'bg-sky-600',
+    shirtColor: '#0284c7',
+    hairColor: '#0f172a',
+    skinColor: '#f5cba7',
+    homeSpot: WAYPOINTS.lounge_kael,
+    deskSpot: WAYPOINTS.desk_kael,
+    deskRect: { x: 76, y: 952, w: 96, h: 46 },
+    sop: 'Tangani seluruh tugas secara mandiri dari awal hingga selesai (analisis inti, eksekusi kode/solusi lengkap, dan self-check kualitas) dengan prinsip ringkas, on-point, dan anti-overengineering. Tulis kode lengkap 100% sampai penutup akhir tanpa placeholder atau "// ...", serta sertakan catatan singkat validasi/edge-case jika relevan.',
   },
 ];
 

@@ -73,7 +73,8 @@ export function useOfficeState() {
   const [maxRevisions, setMaxRevisions] = useState(2);
 
   const [workflowMode, setWorkflowMode] = useState('relay');
-  const [fastAgentId, setFastAgentId] = useState('raka');
+  const [grillingEnabled, setGrillingEnabled] = useState(true);
+  const [bgmTrack, setBgmTrack] = useState('lofi');
 
   const [agents, setAgents] = useState(DEFAULT_AGENTS);
   const [sessions, setSessions] = useState([initialSession]);
@@ -134,10 +135,17 @@ export function useOfficeState() {
         if (typeof saved.maxRevisions === 'number') {
           setMaxRevisions(Math.max(0, Math.min(3, saved.maxRevisions)));
         }
-        if (saved.workflowMode === 'relay' || saved.workflowMode === 'fast') {
+        if (saved.workflowMode === 'relay' || saved.workflowMode === 'solo') {
           setWorkflowMode(saved.workflowMode);
+        } else if (saved.workflowMode === 'fast') {
+          setWorkflowMode('solo');
         }
-        if (saved.fastAgentId) setFastAgentId(saved.fastAgentId);
+        if (typeof saved.grillingEnabled === 'boolean') {
+          setGrillingEnabled(saved.grillingEnabled);
+        }
+        if (typeof saved.bgmTrack === 'string') {
+          setBgmTrack(saved.bgmTrack);
+        }
 
         const hasLegacyLocalKeys = Boolean(saved.geminiApiKey || saved.deepseekApiKey);
         const shouldRemember =
@@ -171,7 +179,8 @@ export function useOfficeState() {
         }
 
         if (Array.isArray(saved.agents) && saved.agents.length >= 3) {
-          const mergedAgents = saved.agents.map((savedAg, idx) => {
+          let extraSlotIdx = 0;
+          const mergedAgents = saved.agents.map((savedAg) => {
             const coreDef = DEFAULT_AGENTS.find((d) => d.id === savedAg.id);
             if (coreDef) {
               return {
@@ -183,7 +192,7 @@ export function useOfficeState() {
               };
             }
             const slot =
-              EXTRA_AGENT_SLOTS[(idx - 3) % EXTRA_AGENT_SLOTS.length] || EXTRA_AGENT_SLOTS[0];
+              EXTRA_AGENT_SLOTS[extraSlotIdx++ % EXTRA_AGENT_SLOTS.length] || EXTRA_AGENT_SLOTS[0];
             return {
               ...slot,
               ...savedAg,
@@ -193,8 +202,16 @@ export function useOfficeState() {
               deskRect: savedAg.deskRect || slot.deskRect,
             };
           });
-          setAgents(mergedAgents);
-          syncNpcsWithAgents(mergedAgents);
+
+          // Migrasi otomatis: tambahkan agen inti baru (mis. Kael Full-Stack) untuk sesi lama
+          const existingIds = new Set(mergedAgents.map((a) => a.id));
+          const missingCores = DEFAULT_AGENTS.filter((d) => !existingIds.has(d.id));
+          const coreList = mergedAgents.filter((a) => DEFAULT_AGENTS.some((d) => d.id === a.id));
+          const extraList = mergedAgents.filter((a) => !DEFAULT_AGENTS.some((d) => d.id === a.id));
+          const finalAgents = [...coreList, ...missingCores, ...extraList];
+
+          setAgents(finalAgents);
+          syncNpcsWithAgents(finalAgents);
         }
       } else if (sessionKeys) {
         if (sessionKeys.geminiApiKey) setGeminiApiKey(sessionKeys.geminiApiKey);
@@ -266,7 +283,8 @@ export function useOfficeState() {
           deepseekApiKey: rememberKeys ? deepseekApiKey : '',
           maxRevisions,
           workflowMode,
-          fastAgentId,
+          grillingEnabled,
+          bgmTrack,
           agents,
           sessions,
           activeSessionId,
@@ -295,7 +313,8 @@ export function useOfficeState() {
     deepseekApiKey,
     maxRevisions,
     workflowMode,
-    fastAgentId,
+    grillingEnabled,
+    bgmTrack,
     agents,
     sessions,
     activeSessionId,
@@ -377,8 +396,10 @@ export function useOfficeState() {
     setMaxRevisions,
     workflowMode,
     setWorkflowMode,
-    fastAgentId,
-    setFastAgentId,
+    grillingEnabled,
+    setGrillingEnabled,
+    bgmTrack,
+    setBgmTrack,
     agents,
     setAgents,
     sessions,

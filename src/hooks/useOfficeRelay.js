@@ -1,8 +1,15 @@
 import { useRef, useState } from 'react';
-import { CORE_AGENT_IDS, MEETING_SEATS, WAYPOINTS } from '../constants/officeConfig';
+import { CORE_AGENT_IDS, FULLSTACK_AGENT_ID, MEETING_SEATS, WAYPOINTS } from '../constants/officeConfig';
 import { buildOfficePath } from '../utils/pathfinding';
 import { abortableSleep, executeAgentPrompt } from '../utils/geminiClient';
 import { playRetroTone } from '../utils/audio';
+import {
+  MAX_GRILLING_ROUNDS,
+  buildAlexGrillingSop,
+  buildFullStackGrillingSop,
+  buildRakaConciseSop,
+  detectAlexGrillingStatus,
+} from '../utils/grilling';
 
 function isAbortErr(err) {
   return err?.name === 'AbortError' || err?.message === 'ABORTED';
@@ -51,7 +58,7 @@ export function useOfficeRelay({
   fxEnabled,
   maxRevisions,
   workflowMode,
-  fastAgentId,
+  grillingEnabled = true,
   promptInput,
   setPromptInput,
   selectedFile,
@@ -69,8 +76,10 @@ export function useOfficeRelay({
   const [pipelineStatus, setPipelineStatus] = useState(
     'Kantor Siap • Gerakkan Director (WASD/Klik) atau Jalankan Tim'
   );
+  const [pendingGrilling, setPendingGrilling] = useState(null);
 
   const abortControllerRef = useRef(null);
+  const grillingResolverRef = useRef(null);
 
   const emitFx = (type, x, y) => {
     fxEventsRef.current.push({ type, x, y });
@@ -78,6 +87,56 @@ export function useOfficeRelay({
 
   const stopActiveRun = () => {
     abortControllerRef.current?.abort();
+  };
+
+  const waitForGrillingResponse = (payload, signal) =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        const err = new Error('ABORTED');
+        err.name = 'AbortError';
+        return reject(err);
+      }
+
+      const onAbort = () => {
+        grillingResolverRef.current = null;
+        setPendingGrilling(null);
+        const err = new Error('ABORTED');
+        err.name = 'AbortError';
+        reject(err);
+      };
+
+      signal?.addEventListener('abort', onAbort, { once: true });
+      grillingResolverRef.current = (decision) => {
+        signal?.removeEventListener('abort', onAbort);
+        grillingResolverRef.current = null;
+        setPendingGrilling(null);
+        resolve(decision);
+      };
+      setPendingGrilling(payload);
+    });
+
+  const submitGrillingAnswer = (answerText) => {
+    const trimmed = String(answerText || '').trim();
+    if (!trimmed) {
+      showToast('Ketik jawaban atau klik Setujui Semua Rekomendasi.', 'info');
+      return;
+    }
+    playRetroTone('approve', fxEnabled);
+    grillingResolverRef.current?.({ action: 'answer', answer: trimmed });
+  };
+
+  const approveGrillingRecommendations = () => {
+    playRetroTone('approve', fxEnabled);
+    grillingResolverRef.current?.({
+      action: 'approve',
+      answer:
+        'Setuju dengan seluruh rekomendasi Alex. Langsung kunci Kontrak Kerja Ringkas dan lanjutkan eksekusi ke tim Developer.',
+    });
+  };
+
+  const skipGrilling = () => {
+    playRetroTone('click', fxEnabled);
+    grillingResolverRef.current?.({ action: 'skip', answer: '' });
   };
 
   const moveNpcTo = (npcId, targetPoint, options = {}, signal = null) => {
@@ -129,6 +188,9 @@ export function useOfficeRelay({
         npc.hasReportExclamation = Boolean(options.showExclamation);
         npc.meetingTimer = options.meetingDuration || 0;
         if (options.endFacing) npc.facing = options.endFacing;
+        if (options.endState === 'WORKING') {
+          playRetroTone('work', fxEnabled);
+        }
         resolve();
       };
     });
@@ -179,22 +241,34 @@ export function useOfficeRelay({
     });
   };
 
-  const getAgentMeetingSeat = (agentId, extraIndex = 0) => {
+  const getAgentMeetingSeat = (agentId, extraIndex = 0, isSoloParticipant = false) => {
+    if (isSoloParticipant) return MEETING_SEATS.alex;
     if (agentId === 'alex') return MEETING_SEATS.alex;
     if (agentId === 'raka') return MEETING_SEATS.raka;
     if (agentId === 'nadia') return MEETING_SEATS.nadia;
+    if (agentId === FULLSTACK_AGENT_ID) return MEETING_SEATS.kael;
     return MEETING_SEATS.extra[extraIndex % MEETING_SEATS.extra.length];
   };
 
-  // Kumpulkan Director + seluruh AI Agent ke meja rapat Ruang Director saat command selesai
-  const gatherAllAtDirectorMeeting = async ({ leadReporterId, isApproved = true, signal }) => {
+  // Kumpulkan Director + agen peserta ke meja rapat Ruang Director saat command selesai
+  const gatherAllAtDirectorMeeting = async ({
+    leadReporterId,
+    isApproved = true,
+    participantIds = null,
+    signal,
+  }) => {
+    const participants = Array.isArray(participantIds)
+      ? agents.filter((ag) => participantIds.includes(ag.id))
+      : agents;
+    const isSoloParticipant = participants.length === 1;
+
     let extraIdx = 0;
     const moves = [moveDirectorToMeetingSeat(signal)];
 
-    for (let idx = 0; idx < agents.length; idx++) {
-      const ag = agents[idx];
+    for (let idx = 0; idx < participants.length; idx++) {
+      const ag = participants[idx];
       const isCore = CORE_AGENT_IDS.includes(ag.id);
-      const seat = getAgentMeetingSeat(ag.id, isCore ? 0 : extraIdx++);
+      const seat = getAgentMeetingSeat(ag.id, isCore ? 0 : extraIdx++, isSoloParticipant);
       const isLeadReporter = ag.id === leadReporterId;
 
       moves.push(
@@ -322,6 +396,7 @@ export function useOfficeRelay({
 
     setSelectedNpcId(null);
     setIsRelayRunning(true);
+    playRetroTone('start', fxEnabled);
 
     const dirLog = appendLogToSession(
       runSessionId,
@@ -366,15 +441,16 @@ export function useOfficeRelay({
         signal: controller.signal,
       });
 
-      setPipelineStatus(`Selesai • Seluruh tim AI berkumpul di Ruang Director...`);
+      setPipelineStatus(`Selesai • ${agent.name} melapor di Ruang Director...`);
       playRetroTone('report', fxEnabled);
       await gatherAllAtDirectorMeeting({
         leadReporterId: agent.id,
+        participantIds: [agent.id],
         isApproved: true,
         signal: controller.signal,
       });
       emitFx('confetti', 170, 178);
-      setPipelineStatus(`Selesai • Semua agen AI berkumpul & melapor di Ruang Director.`);
+      setPipelineStatus(`Selesai • ${agent.name} melapor di Ruang Director.`);
     } catch (err) {
       if (isAbortErr(err)) {
         setPipelineStatus('Tugas dihentikan oleh Director.');
@@ -385,6 +461,227 @@ export function useOfficeRelay({
       }
       resetWorkingNpcs();
     } finally {
+      grillingResolverRef.current = null;
+      setPendingGrilling(null);
+      abortControllerRef.current = null;
+      setIsRelayRunning(false);
+      clearFile();
+    }
+  };
+
+  const runSoloFullStackExecution = async (taskPrompt) => {
+    const kael = agents.find((a) => a.id === FULLSTACK_AGENT_ID) || agents[0];
+    if (!kael || isRelayRunning) return;
+
+    const runSessionId = activeSession.id;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setSelectedNpcId(null);
+    setIsRelayRunning(true);
+    playRetroTone('start', fxEnabled);
+    npcRef.current.forEach((n) => {
+      n.hasReportExclamation = false;
+      n.statusBubble = '';
+    });
+
+    const directorEntry = appendLogToSession(
+      runSessionId,
+      {
+        agentId: 'director',
+        agentName: 'Director (You)',
+        agentRole: `Solo Full-Stack -> ${kael.name}`,
+        badgeClass: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+        borderHex: '#ec4899',
+        content: selectedFile
+          ? `@${kael.name}: ${taskPrompt}\n\n📎 Lampiran: \`${selectedFile.name}\``
+          : `@${kael.name}: ${taskPrompt}`,
+      },
+      taskPrompt
+    );
+    setPromptInput('');
+
+    const currentLogs = [...logs, directorEntry];
+    const attachedFileData = filePayload || null;
+    const isUsingLocalAgy =
+      Boolean(agyStatus?.available) &&
+      (aiProvider === 'agy' || (aiProvider === 'auto' && !geminiApiKey && !deepseekApiKey));
+
+    try {
+      let grillingRound = 0;
+      let done = false;
+      let forceExecute = false;
+      const directorNotes = [];
+
+      while (!done) {
+        const canGrillThisRound =
+          grillingEnabled && !forceExecute && grillingRound < MAX_GRILLING_ROUNDS;
+
+        setPipelineStatus(
+          grillingRound === 0 && !forceExecute
+            ? `Solo Full-Stack: ${kael.name} menuju meja kerja...`
+            : `Solo Full-Stack: ${kael.name} mengeksekusi solusi akhir...`
+        );
+
+        await moveNpcTo(
+          kael.id,
+          kael.deskSpot || WAYPOINTS.desk_kael,
+          {
+            bubble: grillingRound === 0 ? 'Menuju meja Solo...' : '💻 Eksekusi penuh...',
+            endState: 'WORKING',
+            endBubble: forceExecute
+              ? '🚀 Eksekusi solusi...'
+              : grillingRound > 0
+                ? '⚙️ Memproses jawaban...'
+                : '⚡ Analisis & Eksekusi...',
+            endFacing: 'down',
+          },
+          controller.signal
+        );
+
+        if ((grillingRound > 0 || forceExecute) && apiMode === 'live' && !isUsingLocalAgy) {
+          setPipelineStatus(`Cooldown API 3 detik sebelum ${kael.name} melanjutkan...`);
+          await abortableSleep(3000, controller.signal);
+        }
+
+        const kaelAgentForRound = {
+          ...kael,
+          sop: buildFullStackGrillingSop(kael.sop, {
+            grillingEnabled,
+            round: grillingRound,
+            maxRounds: MAX_GRILLING_ROUNDS,
+            forceExecute,
+          }),
+        };
+
+        const kaelPromptForRound =
+          directorNotes.length === 0 && !forceExecute
+            ? taskPrompt
+            : directorNotes.length === 0
+              ? `${taskPrompt}\n\n[EKSEKUSI LANGSUNG]: Director melewati konfirmasi. Gunakan rekomendasi terbaik yang paling ringkas dan langsung hasilkan solusi lengkap.`
+              : `${taskPrompt}\n\n[JAWABAN GRILLING DIRECTOR — KEPUTUSAN INTI TERKONFIRMASI]:\n${directorNotes
+                  .map((note, idx) => `Ronde #${idx + 1}: ${note}`)
+                  .join('\n')}\n\n${
+                  forceExecute || grillingRound >= MAX_GRILLING_ROUNDS
+                    ? 'Seluruh keputusan inti sudah dikonfirmasi. Langsung eksekusi dan tulis solusi akhir yang lengkap, ringkas, dan on-point sekarang.'
+                    : 'Jika semua keputusan inti sudah jelas, langsung tulis solusi akhir lengkap sekarang. Hanya ajukan ronde terakhir ([STATUS: GRILLING]) jika masih ada keputusan CORE krusial yang belum terjawab.'
+                }`;
+
+        const { result: kaelRes, logEntry: kaelLog } = await runStreamingAgentCall({
+          sessionId: runSessionId,
+          agent: kaelAgentForRound,
+          roleLabel: forceExecute ? `${kael.role} • Eksekusi` : kael.role,
+          prompt: kaelPromptForRound,
+          recentLogs: currentLogs,
+          attachedFileData,
+          signal: controller.signal,
+        });
+
+        const status = detectAlexGrillingStatus(kaelRes.text, { canGrill: canGrillThisRound });
+
+        if (status === 'grilling') {
+          const nextRound = grillingRound + 1;
+          const grillingRole = `${kael.role} • Grilling #${nextRound}`;
+          updateLogInSession(runSessionId, kaelLog.id, { agentRole: grillingRole });
+          currentLogs.push({ ...kaelLog, agentRole: grillingRole });
+
+          setPipelineStatus(
+            `Grilling #${nextRound}/${MAX_GRILLING_ROUNDS}: ${kael.name} menunggu konfirmasi inti dari Director...`
+          );
+          playRetroTone('grilling', fxEnabled);
+          await moveNpcTo(
+            kael.id,
+            MEETING_SEATS.alex,
+            {
+              carryingDoc: true,
+              bubble: `❓ Konfirmasi inti #${nextRound}...`,
+              endState: 'REPORTING',
+              endBubble: '❓ Menunggu Director...',
+              showExclamation: true,
+              endFacing: MEETING_SEATS.alex.facing,
+            },
+            controller.signal
+          );
+
+          const decision = await waitForGrillingResponse(
+            {
+              round: nextRound,
+              maxRounds: MAX_GRILLING_ROUNDS,
+              alexName: kael.name,
+              alexRole: kael.role,
+              taskPrompt,
+              content: kaelRes.text,
+              skipLabel: 'Lewati & Eksekusi',
+            },
+            controller.signal
+          );
+
+          const kaelNpc = npcRef.current.find((n) => n.id === kael.id);
+          if (kaelNpc) kaelNpc.hasReportExclamation = false;
+
+          if (decision.action === 'skip') {
+            const skipLog = appendLogToSession(runSessionId, {
+              agentId: 'director',
+              agentName: 'Director (You)',
+              agentRole: 'Lewati Grilling',
+              badgeClass: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+              borderHex: '#ec4899',
+              content: 'Lewati konfirmasi — langsung eksekusi solusi akhir dengan rekomendasi terbaik.',
+            });
+            currentLogs.push(skipLog);
+            forceExecute = true;
+          } else {
+            const answerLabel =
+              decision.action === 'approve'
+                ? `Setuju Rekomendasi (#${nextRound})`
+                : `Jawaban Grilling #${nextRound}`;
+            const dirAnswerLog = appendLogToSession(runSessionId, {
+              agentId: 'director',
+              agentName: 'Director (You)',
+              agentRole: answerLabel,
+              badgeClass: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+              borderHex: '#ec4899',
+              content: decision.answer,
+            });
+            currentLogs.push(dirAnswerLog);
+            directorNotes.push(decision.answer);
+            grillingRound = nextRound;
+            if (decision.action === 'approve' || grillingRound >= MAX_GRILLING_ROUNDS) {
+              forceExecute = true;
+            }
+          }
+        } else {
+          const doneRole =
+            directorNotes.length > 0 || forceExecute ? `${kael.role} • Selesai` : kael.role;
+          updateLogInSession(runSessionId, kaelLog.id, { agentRole: doneRole });
+          currentLogs.push({ ...kaelLog, agentRole: doneRole });
+          done = true;
+        }
+      }
+
+      setPipelineStatus(`Solo Selesai • ${kael.name} melapor ke Ruang Director...`);
+      playRetroTone('report', fxEnabled);
+      await gatherAllAtDirectorMeeting({
+        leadReporterId: kael.id,
+        participantIds: [kael.id],
+        isApproved: true,
+        signal: controller.signal,
+      });
+      emitFx('confetti', 170, 178);
+      setPipelineStatus(`Solo Selesai • ${kael.name} menuntaskan tugas secara mandiri (!)`);
+      showToast(`${kael.name} menyelesaikan tugas secara mandiri!`, 'success');
+    } catch (err) {
+      if (isAbortErr(err)) {
+        setPipelineStatus('Tugas Solo dihentikan oleh Director.');
+        showToast('Tugas dihentikan.', 'info');
+      } else {
+        setPipelineStatus(`Error: ${err.message}`);
+        showToast(err.message, 'error');
+      }
+      resetWorkingNpcs();
+    } finally {
+      grillingResolverRef.current = null;
+      setPendingGrilling(null);
       abortControllerRef.current = null;
       setIsRelayRunning(false);
       clearFile();
@@ -410,9 +707,8 @@ export function useOfficeRelay({
       return;
     }
 
-    if (workflowMode === 'fast') {
-      const target = agents.find((a) => a.id === fastAgentId) || agents[1] || agents[0];
-      await runSingleAgentExecution(target, taskPrompt, 'Fast Mode');
+    if (workflowMode === 'solo') {
+      await runSoloFullStackExecution(taskPrompt);
       return;
     }
 
@@ -421,6 +717,7 @@ export function useOfficeRelay({
     abortControllerRef.current = controller;
 
     setIsRelayRunning(true);
+    playRetroTone('start', fxEnabled);
     npcRef.current.forEach((n) => {
       n.hasReportExclamation = false;
       n.statusBubble = '';
@@ -453,29 +750,163 @@ export function useOfficeRelay({
       (aiProvider === 'agy' || (aiProvider === 'auto' && !geminiApiKey && !deepseekApiKey));
 
     try {
-      // 1. ALEX (Tech Lead)
-      setPipelineStatus(`1/3: ${alex.name} menuju Tech Lead Room...`);
-      await moveNpcTo(
-        alex.id,
-        alex.deskSpot || WAYPOINTS.desk_alex,
-        {
-          bubble: 'Menuju ruang Lead...',
-          endState: 'WORKING',
-          endBubble: '⚙️ Analisis tugas...',
-          endFacing: 'up',
-        },
-        controller.signal
-      );
+      // 1. ALEX (Tech Lead — Core-Only Grilling + Kontrak Kerja Ringkas)
+      let grillingRound = 0;
+      let alexReady = false;
+      let forceFinalizeAlex = false;
+      let hasLockedContract = false;
+      const directorGrillingNotes = [];
 
-      const { logEntry: alexLog } = await runStreamingAgentCall({
-        sessionId: runSessionId,
-        agent: alex,
-        prompt: taskPrompt,
-        recentLogs: currentLogs,
-        attachedFileData,
-        signal: controller.signal,
-      });
-      currentLogs.push(alexLog);
+      while (!alexReady) {
+        const canGrillThisRound =
+          grillingEnabled && !forceFinalizeAlex && grillingRound < MAX_GRILLING_ROUNDS;
+
+        setPipelineStatus(
+          grillingRound === 0
+            ? `1/3: ${alex.name} menuju Tech Lead Room...`
+            : forceFinalizeAlex
+              ? `1/3: ${alex.name} mengunci Kontrak Kerja Ringkas...`
+              : `1/3: ${alex.name} meninjau jawaban Grilling #${grillingRound}...`
+        );
+
+        await moveNpcTo(
+          alex.id,
+          alex.deskSpot || WAYPOINTS.desk_alex,
+          {
+            bubble: grillingRound === 0 ? 'Menuju ruang Lead...' : '📋 Kunci kontrak...',
+            endState: 'WORKING',
+            endBubble: forceFinalizeAlex
+              ? '📝 Mengunci kontrak...'
+              : grillingRound > 0
+                ? '⚙️ Finalisasi arahan...'
+                : '⚙️ Analisis tugas...',
+            endFacing: 'up',
+          },
+          controller.signal
+        );
+
+        if (grillingRound > 0 && apiMode === 'live' && !isUsingLocalAgy) {
+          setPipelineStatus(`Cooldown API 3 detik sebelum ${alex.name} melanjutkan...`);
+          await abortableSleep(3000, controller.signal);
+        }
+
+        const alexAgentForRound = {
+          ...alex,
+          sop: buildAlexGrillingSop(alex.sop, {
+            grillingEnabled,
+            round: grillingRound,
+            maxRounds: MAX_GRILLING_ROUNDS,
+            forceFinalize: forceFinalizeAlex,
+          }),
+        };
+
+        const alexPromptForRound =
+          directorGrillingNotes.length === 0
+            ? taskPrompt
+            : `${taskPrompt}\n\n[JAWABAN GRILLING DIRECTOR — KEPUTUSAN INTI TERKONFIRMASI]:\n${directorGrillingNotes
+                .map((note, idx) => `Ronde #${idx + 1}: ${note}`)
+                .join('\n')}\n\n${
+                forceFinalizeAlex || grillingRound >= MAX_GRILLING_ROUNDS
+                  ? 'Seluruh keputusan inti sudah dikonfirmasi. Susun Kontrak Kerja Ringkas final untuk Raka dan akhiri dengan [STATUS: READY].'
+                  : 'Jika semua keputusan inti sudah jelas, langsung kunci Kontrak Kerja Ringkas dengan [STATUS: READY]. Hanya ajukan ronde pertanyaan terakhir jika masih ada keputusan CORE krusial yang belum terjawab ([STATUS: GRILLING]).'
+              }`;
+
+        const { result: alexRes, logEntry: alexLog } = await runStreamingAgentCall({
+          sessionId: runSessionId,
+          agent: alexAgentForRound,
+          roleLabel:
+            grillingRound > 0 ? `${alex.role} • Kontrak #${grillingRound}` : alex.role,
+          prompt: alexPromptForRound,
+          recentLogs: currentLogs,
+          attachedFileData,
+          signal: controller.signal,
+        });
+
+        const alexStatus = detectAlexGrillingStatus(alexRes.text, {
+          canGrill: canGrillThisRound,
+        });
+
+        if (alexStatus === 'grilling') {
+          const nextRound = grillingRound + 1;
+          const grillingRole = `${alex.role} • Grilling #${nextRound}`;
+          updateLogInSession(runSessionId, alexLog.id, { agentRole: grillingRole });
+          currentLogs.push({ ...alexLog, agentRole: grillingRole });
+
+          setPipelineStatus(
+            `Grilling #${nextRound}/${MAX_GRILLING_ROUNDS}: ${alex.name} menunggu konfirmasi inti dari Director...`
+          );
+          playRetroTone('grilling', fxEnabled);
+          await moveNpcTo(
+            alex.id,
+            MEETING_SEATS.alex,
+            {
+              carryingDoc: true,
+              bubble: `❓ Konfirmasi inti #${nextRound}...`,
+              endState: 'REPORTING',
+              endBubble: '❓ Menunggu Director...',
+              showExclamation: true,
+              endFacing: MEETING_SEATS.alex.facing,
+            },
+            controller.signal
+          );
+
+          const decision = await waitForGrillingResponse(
+            {
+              round: nextRound,
+              maxRounds: MAX_GRILLING_ROUNDS,
+              alexName: alex.name,
+              alexRole: alex.role,
+              taskPrompt,
+              content: alexRes.text,
+            },
+            controller.signal
+          );
+
+          const alexNpc = npcRef.current.find((n) => n.id === alex.id);
+          if (alexNpc) alexNpc.hasReportExclamation = false;
+
+          if (decision.action === 'skip') {
+            const skipLog = appendLogToSession(runSessionId, {
+              agentId: 'director',
+              agentName: 'Director (You)',
+              agentRole: 'Lewati Grilling',
+              badgeClass: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+              borderHex: '#ec4899',
+              content:
+                'Lewati konfirmasi — lanjutkan eksekusi langsung ke tim Developer dengan rekomendasi terbaik.',
+            });
+            currentLogs.push(skipLog);
+            alexReady = true;
+          } else {
+            const answerLabel =
+              decision.action === 'approve'
+                ? `Setuju Rekomendasi (#${nextRound})`
+                : `Jawaban Grilling #${nextRound}`;
+            const dirAnswerLog = appendLogToSession(runSessionId, {
+              agentId: 'director',
+              agentName: 'Director (You)',
+              agentRole: answerLabel,
+              badgeClass: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+              borderHex: '#ec4899',
+              content: decision.answer,
+            });
+            currentLogs.push(dirAnswerLog);
+            directorGrillingNotes.push(decision.answer);
+            grillingRound = nextRound;
+            if (decision.action === 'approve' || grillingRound >= MAX_GRILLING_ROUNDS) {
+              forceFinalizeAlex = true;
+            }
+          }
+        } else {
+          const readyRole =
+            directorGrillingNotes.length > 0 ? `${alex.role} • Kontrak Final` : alex.role;
+          updateLogInSession(runSessionId, alexLog.id, { agentRole: readyRole });
+          currentLogs.push({ ...alexLog, agentRole: readyRole });
+          hasLockedContract =
+            directorGrillingNotes.length > 0 || /\[STATUS:\s*READY\]/i.test(alexRes.text);
+          alexReady = true;
+        }
+      }
 
       const firstNextTarget = specialists[0]?.deskSpot || raka.deskSpot || WAYPOINTS.desk_raka;
       setPipelineStatus(
@@ -591,11 +1022,23 @@ export function useOfficeRelay({
           await abortableSleep(3000, controller.signal);
         }
 
+        const confirmedDecisionsBlock =
+          directorGrillingNotes.length > 0
+            ? `\n\n[KEPUTUSAN INTI DIRECTOR TERKONFIRMASI]:\n${directorGrillingNotes
+                .map((note, idx) => `- Ronde #${idx + 1}: ${note}`)
+                .join('\n')}\nEksekusi secara ringkas, on-point, dan tepat sesuai Kontrak Kerja ${alex.name} tanpa menambah fitur di luar kesepakatan.`
+            : '';
+
         const rakaPrompt = !isRevision
-          ? taskPrompt
+          ? `${taskPrompt}${confirmedDecisionsBlock}`
           : isFinalRevision
-            ? `${taskPrompt}\n\n[PRIORITAS REVISI TERAKHIR #${attempt}/${maxRevisions} — KUNCI FITUR UTAMA DARI QA (${nadia.name})]:\nIni adalah kesempatan revisi terakhir. Pastikan 100% FITUR PENTING / INTI dari Perintah Director sudah benar, berfungsi baik, bebas bug logika, dan kode/dokumen TERTULIS LENGKAP UTUH sampai penutup akhir tanpa terpotong atau placeholder. Jika ada detail kosmetik sekunder yang berisiko merusak fitur utama atau memotong kode, sederhanakan bagian sekunder tersebut agar hasil akhir benar-benar solid dan siap pakai.\n\nTemuan QA yang wajib dibereskan:\n${lastNadiaFeedback}`
-            : `${taskPrompt}\n\n[INSTRUKSI REVISI #${attempt}/${maxRevisions} DARI QA (${nadia.name})]:\nPerbaiki seluruh temuan fitur inti & bug di bawah ini secara tuntas dan pastikan output lengkap utuh dari awal sampai akhir:\n\n${lastNadiaFeedback}`;
+            ? `${taskPrompt}${confirmedDecisionsBlock}\n\n[PRIORITAS REVISI TERAKHIR #${attempt}/${maxRevisions} — KUNCI FITUR UTAMA DARI QA (${nadia.name})]:\nIni adalah kesempatan revisi terakhir. Pastikan 100% FITUR PENTING / INTI dari Perintah Director sudah benar, berfungsi baik, bebas bug logika, dan kode/dokumen TERTULIS LENGKAP UTUH sampai penutup akhir tanpa terpotong atau placeholder. Jika ada detail kosmetik sekunder yang berisiko merusak fitur utama atau memotong kode, sederhanakan bagian sekunder tersebut agar hasil akhir benar-benar solid dan siap pakai.\n\nTemuan QA yang wajib dibereskan:\n${lastNadiaFeedback}`
+            : `${taskPrompt}${confirmedDecisionsBlock}\n\n[INSTRUKSI REVISI #${attempt}/${maxRevisions} DARI QA (${nadia.name})]:\nPerbaiki seluruh temuan fitur inti & bug di bawah ini secara tuntas dan pastikan output lengkap utuh dari awal sampai akhir:\n\n${lastNadiaFeedback}`;
+
+        const rakaAgentConcise = {
+          ...raka,
+          sop: buildRakaConciseSop(raka.sop, { hasLockedContract }),
+        };
 
         const focusedLogsForRaka = buildFocusedRelayLogs(
           currentLogs,
@@ -606,7 +1049,7 @@ export function useOfficeRelay({
 
         const { logEntry: rakaLog } = await runStreamingAgentCall({
           sessionId: runSessionId,
-          agent: raka,
+          agent: rakaAgentConcise,
           roleLabel: isFinalRevision
             ? `${raka.role} • Finalisasi #${attempt}`
             : isRevision
@@ -748,6 +1191,7 @@ export function useOfficeRelay({
       playRetroTone('report', fxEnabled);
       await gatherAllAtDirectorMeeting({
         leadReporterId: nadia.id,
+        participantIds: agents.filter((a) => a.id !== FULLSTACK_AGENT_ID).map((a) => a.id),
         isApproved,
         signal: controller.signal,
       });
@@ -782,6 +1226,8 @@ export function useOfficeRelay({
       }
       resetWorkingNpcs();
     } finally {
+      grillingResolverRef.current = null;
+      setPendingGrilling(null);
       abortControllerRef.current = null;
       setIsRelayRunning(false);
       clearFile();
@@ -810,6 +1256,10 @@ export function useOfficeRelay({
     setIsRelayRunning,
     pipelineStatus,
     setPipelineStatus,
+    pendingGrilling,
+    submitGrillingAnswer,
+    approveGrillingRecommendations,
+    skipGrilling,
     startAutoRelay,
     dispatchSingleAgent,
     stopActiveRun,

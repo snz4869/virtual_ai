@@ -1,6 +1,7 @@
 import React from 'react';
-import { Download, FileText, RotateCcw, Users, Volume2, VolumeX } from 'lucide-react';
+import { Download, FileText, Music, RotateCcw, Users, Volume2, VolumeX } from 'lucide-react';
 import { OFFICE_ROOMS } from '../constants/officeConfig';
+import { OFFICE_BGM_TRACKS } from '../utils/audio';
 
 export default function HeaderBar({
   agentCount,
@@ -8,6 +9,8 @@ export default function HeaderBar({
   onChangeSimSpeed,
   fxEnabled,
   onToggleFx,
+  bgmTrack,
+  onChangeBgmTrack,
   apiMode,
   aiProvider,
   agyAvailable,
@@ -61,14 +64,38 @@ export default function HeaderBar({
         <button
           onClick={onToggleFx}
           className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium border border-slate-700 flex items-center gap-1.5"
+          title="Aktifkan / matikan efek suara interaksi kantor"
         >
           {fxEnabled ? (
             <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
           ) : (
             <VolumeX className="w-3.5 h-3.5 text-slate-400" />
           )}
-          <span className="hidden sm:inline">{fxEnabled ? 'Audio: ON' : 'Audio: OFF'}</span>
+          <span className="hidden sm:inline">{fxEnabled ? 'SFX: ON' : 'SFX: OFF'}</span>
         </button>
+
+        <div
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs ${
+            bgmTrack && bgmTrack !== 'off'
+              ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
+              : 'bg-slate-800 border-slate-700 text-slate-400'
+          }`}
+          title="Pilih musik latar kantor (Office Lobby OST)"
+        >
+          <Music className={`w-3.5 h-3.5 shrink-0 ${bgmTrack && bgmTrack !== 'off' ? 'text-indigo-400' : 'text-slate-400'}`} />
+          <select
+            aria-label="Pilih audio latar kantor"
+            value={bgmTrack || 'off'}
+            onChange={(e) => onChangeBgmTrack(e.target.value)}
+            className="bg-transparent text-xs font-medium focus:outline-none cursor-pointer pr-1"
+          >
+            {OFFICE_BGM_TRACKS.map((t) => (
+              <option key={t.id} value={t.id} className="bg-slate-900 text-slate-100">
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <button
           onClick={onOpenSettings}

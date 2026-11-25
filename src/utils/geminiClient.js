@@ -150,19 +150,62 @@ async function consumeSSEStream(body, onDataJson, signal) {
   }
 }
 
-function buildDemoResponse({ agent, taskInput, fileData }) {
+function buildDemoResponse({ agent, taskInput, fileData, sop = '' }) {
   const agentId = agent?.id || '';
   const agentName = agent?.name || 'Agen';
   const role = agent?.role || 'Anggota Tim';
   const attachmentNote = fileData?.fileName ? `\nLampiran terdeteksi: \`${fileData.fileName}\`.` : '';
   const isLandingTask = /landing\s*page|html|umkm|saas/i.test(taskInput);
+  const isApiTask = /api|endpoint|antrean|backend|rest/i.test(taskInput);
+  const isComplexBuildTask =
+    isLandingTask || isApiTask || /\b(buat|buatkan|bangun|sistem|aplikasi|fitur|dashboard)\b/i.test(taskInput);
 
   if (agentId === 'alex') {
+    const canGrillInDemo = /\[STATUS:\s*GRILLING\]/i.test(sop);
+    const hasDirectorAnswer = /\[JAWABAN GRILLING DIRECTOR/i.test(taskInput);
+
+    if (canGrillInDemo && !hasDirectorAnswer && isComplexBuildTask) {
+      if (isLandingTask) {
+        return (
+          `### Konfirmasi Keputusan Inti — ${agentName} (${role})${attachmentNote}\n` +
+          `Sebelum Raka mengeksekusi, mohon konfirmasi 2 keputusan inti berikut (detail minor seperti warna/spacing akan langsung ditangani tim):\n\n` +
+          `❓ **Q1** - **Fokus CTA & Alur Utama**: Apakah target utama halaman ini cukup 1 alur konversi (**Coba Gratis 14 Hari** langsung ke bagian Harga) tanpa form registrasi backend?\n\n` +
+          `➡️ Ya, 1 CTA utama menuju tabel harga agar halaman ringkas, cepat, dan siap preview langsung dalam 1 file HTML.\n\n` +
+          `---\n\n` +
+          `❓ **Q2** - **Struktur Paket Harga**: Apakah cukup tampilkan **3 paket inti** (Starter, Pro UMKM, Enterprise) tanpa toggle bulanan/tahunan?\n\n` +
+          `➡️ Ya, 3 paket inti saja supaya fokus dan tidak bertele-tele.\n\n` +
+          `[STATUS: GRILLING]`
+        );
+      }
+
+      return (
+        `### Konfirmasi Keputusan Inti — ${agentName} (${role})${attachmentNote}\n` +
+        `Sebelum Raka mengeksekusi, mohon konfirmasi 2 keputusan inti berikut (detail minor langsung dieksekusi tim):\n\n` +
+        `❓ **Q1** - **Penyimpanan Data & Scope**: Apakah implementasi awal cukup menggunakan **in-memory store** (tanpa setup database eksternal) dengan validasi input inti?\n\n` +
+        `➡️ Ya, pakai in-memory store dulu agar kode ringkas, langsung jalan, dan mudah diuji.\n\n` +
+        `---\n\n` +
+        `❓ **Q2** - **Autentikasi & Fitur Tambahan**: Apakah endpoint cukup fokus pada fungsi inti yang diminta **tanpa auth/dashboard tambahan**?\n\n` +
+        `➡️ Ya, fokus pada fungsi inti saja agar output Dev tepat sasaran.\n\n` +
+        `[STATUS: GRILLING]`
+      );
+    }
+
+    if (hasDirectorAnswer) {
+      return (
+        `### Kontrak Kerja Ringkas — ${agentName} (${role})${attachmentNote}\n` +
+        `- **Cakupan Inti (Disetujui Director)**: Eksekusi tepat sesuai keputusan inti yang baru dikonfirmasi Director.\n` +
+        `- **Batasan Anti-Bloat**: Jangan tambah fitur, opsi, atau boilerplate di luar kontrak.\n` +
+        `- **Target Output Raka**: Implementasi utuh, ringkas, dan siap verifikasi QA.\n\n` +
+        `[STATUS: READY]`
+      );
+    }
+
     return (
-      `### Kerangka Kerja — ${agentName} (${role})${attachmentNote}\n` +
+      `### Kontrak Kerja Ringkas — ${agentName} (${role})${attachmentNote}\n` +
       `Target tugas: "${taskInput}"\n` +
-      `1. Tetapkan cakupan inti sesuai perintah Director (anti-overengineering).\n` +
-      `2. Serahkan ke tim Executor untuk implementasi utuh & siap diverifikasi QA.`
+      `1. Cakupan inti sudah jelas — langsung eksekusi secara ringkas dan akurat (anti-overengineering).\n` +
+      `2. Serahkan ke tim Executor untuk hasil utuh & siap diverifikasi QA.\n\n` +
+      `[STATUS: READY]`
     );
   }
 
@@ -218,6 +261,69 @@ function buildDemoResponse({ agent, taskInput, fileData }) {
       `- Kesesuaian dengan instruksi Director: Terpenuhi (simulasi demo).\n` +
       `- Kelengkapan format & tidak ada error terdeteksi.\n\n` +
       `[STATUS: VERIFIED]`
+    );
+  }
+
+  if (agentId === 'kael') {
+    const canGrillInDemo = /\[STATUS:\s*GRILLING\]/i.test(sop);
+    const hasDirectorAnswer = /\[JAWABAN GRILLING DIRECTOR/i.test(taskInput);
+
+    if (canGrillInDemo && !hasDirectorAnswer && isComplexBuildTask) {
+      return (
+        `### Konfirmasi Cepat — ${agentName} (${role})${attachmentNote}\n` +
+        `Sebelum saya kerjakan end-to-end sendirian, konfirmasi 2 keputusan inti berikut (detail minor langsung saya tangani):\n\n` +
+        `❓ **Q1** - **Cakupan Fitur Inti**: Apakah fokus cukup pada fungsi utama yang diminta tanpa modul tambahan (auth/admin panel)?\n\n` +
+        `➡️ Ya, fokus ke fungsi inti saja agar hasil ringkas, cepat selesai, dan langsung bisa dipakai.\n\n` +
+        `---\n\n` +
+        `❓ **Q2** - **Format Output**: Apakah hasil akhir cukup dikemas dalam 1 blok kode utuh siap jalan (siap Live Preview untuk HTML)?\n\n` +
+        `➡️ Ya, 1 blok kode utuh yang ramping dan sudah melewati self-check.\n\n` +
+        `[STATUS: GRILLING]`
+      );
+    }
+
+    if (isLandingTask) {
+      return (
+        `### Solusi End-to-End — ${agentName} (${role})${attachmentNote}\n` +
+        `Berikut implementasi landing page ringkas siap pakai (sudah self-check struktur & responsivitas, klik **Live Preview**):\n` +
+        '```html\n' +
+        `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KasFlow UMKM — Solo Full-Stack</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; }
+    .hero { padding: 56px 24px; text-align: center; background: #1e293b; border-bottom: 1px solid #334155; }
+    .hero h1 { font-size: 2rem; margin: 0 0 12px; }
+    .hero p { color: #cbd5e1; max-width: 520px; margin: 0 auto 24px; }
+    .cta { display: inline-block; padding: 12px 24px; border-radius: 10px; background: #0ea5e9; color: #082f49; font-weight: 700; text-decoration: none; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 16px; max-width: 860px; margin: 32px auto; padding: 0 20px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 20px; }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <h1>Kelola Keuangan UMKM Lebih Rapi</h1>
+    <p>Catat arus kas, invoice otomatis, dan laporan laba rugi dalam satu dasbor ringan.</p>
+    <a class="cta" href="#harga">Coba Gratis 14 Hari</a>
+  </section>
+  <section class="grid" id="harga">
+    <div class="card"><h3>Starter</h3><p>Gratis • Pencatatan kas harian & laporan bulanan.</p></div>
+    <div class="card"><h3>Pro UMKM</h3><p>Rp 99rb/bln • Multi-cabang, pajak, dan ekspor Excel.</p></div>
+    <div class="card"><h3>Enterprise</h3><p>Rp 299rb/bln • Integrasi API & dukungan prioritas.</p></div>
+  </section>
+</body>
+</html>\n` +
+        '```\n' +
+        `_Self-check: struktur HTML utuh, responsif, tanpa bloat tambahan._`
+      );
+    }
+
+    return (
+      `### Solusi End-to-End — ${agentName} (${role})${attachmentNote}\n` +
+      `Tugas "${taskInput}" telah dianalisis, dieksekusi, dan di-self-check secara mandiri dalam mode **Solo Full-Stack**.\n` +
+      '```txt\nStatus: Selesai Mandiri (Mode Simulasi Demo)\nAktifkan Live AI API di menu Brief & API untuk eksekusi Gemini / DeepSeek / AGY sungguhan.\n```'
     );
   }
 
@@ -598,7 +704,7 @@ export async function executeAgentPrompt({
         : safeProvider;
 
   if (apiMode === 'demo') {
-    const fullDemo = buildDemoResponse({ agent, taskInput, fileData });
+    const fullDemo = buildDemoResponse({ agent, taskInput, fileData, sop });
     if (onChunk) {
       const tokens = fullDemo.split(/(\s+)/);
       let acc = '';

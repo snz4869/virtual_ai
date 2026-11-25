@@ -2,8 +2,24 @@ import assert from 'node:assert/strict';
 import handler from '../api/interact.js';
 import { isOutputTruncated, normalizeAgyEventLine } from '../server/agyBridge.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
-import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, EXTRA_AGENT_SLOTS, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
+import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, CORE_AGENT_IDS, DEFAULT_AGENTS, EXTRA_AGENT_SLOTS, FULLSTACK_AGENT_ID, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
 import { buildOfficePath, isFootBlocked } from '../src/utils/pathfinding.js';
+import {
+  MAX_GRILLING_ROUNDS,
+  buildAlexGrillingSop,
+  buildFullStackGrillingSop,
+  buildRakaConciseSop,
+  detectAlexGrillingStatus,
+  stripGrillingStatusTag,
+} from '../src/utils/grilling.js';
+import {
+  OFFICE_BGM_TRACKS,
+  SFX_TYPES,
+  playRetroTone,
+  setOfficeBgm,
+  stopOfficeBgm,
+  unlockAudio,
+} from '../src/utils/audio.js';
 
 function assertSegmentClear(ax, ay, bx, by, label) {
   const dist = Math.hypot(bx - ax, by - ay);
@@ -17,7 +33,7 @@ function assertSegmentClear(ax, ay, bx, by, label) {
 }
 
 // 1. Pathfinding (Min-Heap A* + Smoothing) across rooms
-for (const targetKey of ['pantrySpot', 'pingPongSpot', 'loungeSofa', 'director_report', 'desk_alex', 'desk_raka', 'desk_nadia']) {
+for (const targetKey of ['pantrySpot', 'pingPongSpot', 'loungeSofa', 'director_report', 'desk_alex', 'desk_raka', 'desk_nadia', 'desk_kael', 'lounge_kael']) {
   const start = WAYPOINTS.lounge_alex;
   const path = buildOfficePath(start.x, start.y, WAYPOINTS[targetKey]);
   assert.ok(path.length > 0, `Path to ${targetKey} must exist`);
@@ -58,6 +74,7 @@ const allMeetingSeats = [
   { name: 'alex (right-mid)', seat: MEETING_SEATS.alex },
   { name: 'raka (right-top)', seat: MEETING_SEATS.raka },
   { name: 'nadia (right-bottom)', seat: MEETING_SEATS.nadia },
+  { name: 'kael (top-head)', seat: MEETING_SEATS.kael },
   ...MEETING_SEATS.extra.map((seat, i) => ({ name: `extra-${i + 1}`, seat })),
 ];
 for (const { name, seat } of allMeetingSeats) {
@@ -232,6 +249,117 @@ const vercelOut = await executeAgentPrompt({
 });
 assert.equal(vercelHitUrl, '/api/interact', 'On Vercel (agyAvailable=false), must bypass AGY and use /api/interact');
 assert.equal(vercelOut.text, 'FALLBACK_VERCEL_OK');
+
+// 7. Alex Tech Lead Core-Only Grilling detection, prompt rules & Demo Mode flow
+assert.equal(detectAlexGrillingStatus('❓ **Q1** - **Scope**: Pilih A?\n\n➡️ Ya\n\n[STATUS: GRILLING]'), 'grilling');
+assert.equal(detectAlexGrillingStatus('Kontrak selesai.\n[STATUS: READY]'), 'ready');
+assert.equal(
+  detectAlexGrillingStatus('❓ **Q1** - **Scope**: Tanpa tag status?\n\n➡️ Ya'),
+  'grilling',
+  'Fallback must detect grilling questions even if tag is omitted'
+);
+assert.equal(
+  detectAlexGrillingStatus('❓ **Q1** - **Scope**: Masih tanya\n[STATUS: GRILLING]', { canGrill: false }),
+  'ready',
+  'Must force ready when grilling is disabled or max rounds reached'
+);
+assert.equal(stripGrillingStatusTag('Halo\n\n[STATUS: GRILLING]'), 'Halo');
+
+const grillingSop = buildAlexGrillingSop('Base SOP', { grillingEnabled: true, round: 0 });
+assert.match(grillingSop, /\[STATUS:\s*GRILLING\]/);
+assert.match(grillingSop, /\[STATUS:\s*READY\]/);
+
+const finalSop = buildAlexGrillingSop('Base SOP', {
+  grillingEnabled: true,
+  round: MAX_GRILLING_ROUNDS,
+});
+assert.doesNotMatch(finalSop, /\[STATUS:\s*GRILLING\]/);
+assert.match(finalSop, /\[STATUS:\s*READY\]/);
+
+const rakaConciseSop = buildRakaConciseSop('Base Raka', { hasLockedContract: true });
+assert.match(rakaConciseSop, /Kontrak Kerja Ringkas/i);
+
+// Demo Mode: tugas singkat langsung READY, tugas kompleks memicu GRILLING lalu READY setelah konfirmasi
+const alexSimpleDemo = await executeAgentPrompt({
+  agent: { id: 'alex', name: 'Alex', role: 'Tech Lead', sop: grillingSop },
+  prompt: 'Hitung akar pangkat 3 dari 34 beserta langkah cepatnya.',
+  brief: 'Brief',
+  apiMode: 'demo',
+  simSpeed: 2,
+});
+assert.equal(detectAlexGrillingStatus(alexSimpleDemo.text), 'ready', 'Simple math prompt should skip grilling');
+
+const alexComplexDemo = await executeAgentPrompt({
+  agent: { id: 'alex', name: 'Alex', role: 'Tech Lead', sop: grillingSop },
+  prompt: 'Buat landing page modern untuk produk SaaS manajemen keuangan UMKM',
+  brief: 'Brief',
+  apiMode: 'demo',
+  simSpeed: 2,
+});
+assert.equal(detectAlexGrillingStatus(alexComplexDemo.text), 'grilling', 'Complex landing page prompt should trigger grilling');
+assert.match(alexComplexDemo.text, /❓\s*\*\*Q1\*\*/);
+
+const alexContractDemo = await executeAgentPrompt({
+  agent: { id: 'alex', name: 'Alex', role: 'Tech Lead', sop: finalSop },
+  prompt: 'Buat landing page modern\n\n[JAWABAN GRILLING DIRECTOR — KEPUTUSAN INTI TERKONFIRMASI]:\nRonde #1: Setuju semua rekomendasi',
+  brief: 'Brief',
+  apiMode: 'demo',
+  simSpeed: 2,
+});
+assert.equal(detectAlexGrillingStatus(alexContractDemo.text), 'ready', 'After Director confirmation Alex must emit READY contract');
+
+// 8. Solo Full-Stack Agent (Kael) config, Core-Only Grilling SOP & Demo Mode flow
+const kaelAgent = DEFAULT_AGENTS.find((a) => a.id === FULLSTACK_AGENT_ID);
+assert.ok(kaelAgent, 'Full-Stack agent Kael must exist in DEFAULT_AGENTS');
+assert.ok(CORE_AGENT_IDS.includes(FULLSTACK_AGENT_ID), 'Kael must be in CORE_AGENT_IDS so it is excluded from 3-agent relay specialists');
+assert.equal(isFootBlocked(kaelAgent.deskSpot.x, kaelAgent.deskSpot.y), false, 'Kael deskSpot must be clear');
+assert.equal(isFootBlocked(kaelAgent.homeSpot.x, kaelAgent.homeSpot.y), false, 'Kael homeSpot must be clear');
+
+const kaelGrillingSop = buildFullStackGrillingSop(kaelAgent.sop, { grillingEnabled: true, round: 0 });
+assert.match(kaelGrillingSop, /\[STATUS:\s*GRILLING\]/);
+const kaelExecSop = buildFullStackGrillingSop(kaelAgent.sop, { grillingEnabled: true, forceExecute: true });
+assert.doesNotMatch(kaelExecSop, /\[STATUS:\s*GRILLING\]/);
+
+const kaelSimpleDemo = await executeAgentPrompt({
+  agent: { ...kaelAgent, sop: kaelGrillingSop },
+  prompt: 'Hitung akar pangkat 3 dari 34 beserta langkah cepatnya.',
+  brief: 'Brief',
+  apiMode: 'demo',
+  simSpeed: 2,
+});
+assert.equal(detectAlexGrillingStatus(kaelSimpleDemo.text), 'ready', 'Simple prompt for Kael should execute directly without grilling');
+
+const kaelComplexDemo = await executeAgentPrompt({
+  agent: { ...kaelAgent, sop: kaelGrillingSop },
+  prompt: 'Buat landing page modern untuk produk SaaS manajemen keuangan UMKM',
+  brief: 'Brief',
+  apiMode: 'demo',
+  simSpeed: 2,
+});
+assert.equal(detectAlexGrillingStatus(kaelComplexDemo.text), 'grilling', 'Complex prompt for Kael with Grilling ON should ask core questions first');
+
+const kaelDoneDemo = await executeAgentPrompt({
+  agent: { ...kaelAgent, sop: kaelExecSop },
+  prompt: 'Buat landing page modern UMKM\n\n[JAWABAN GRILLING DIRECTOR — KEPUTUSAN INTI TERKONFIRMASI]:\nRonde #1: Setuju semua rekomendasi',
+  brief: 'Brief',
+  apiMode: 'demo',
+  simSpeed: 2,
+});
+assert.equal(detectAlexGrillingStatus(kaelDoneDemo.text), 'ready');
+assert.match(kaelDoneDemo.text, /<!DOCTYPE html>/i, 'Kael must deliver full HTML end-to-end solution after confirmation');
+
+// 9. Audio SFX & Office Lobby BGM tracks integrity
+assert.ok(OFFICE_BGM_TRACKS.length >= 4, 'Must offer multiple Office Lobby BGM tracks plus Off');
+assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'off'));
+assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'lofi'));
+assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'rain'));
+for (const sfx of ['step', 'click', 'greet', 'start', 'work', 'handoff', 'grilling', 'approve', 'report', 'slap']) {
+  assert.ok(SFX_TYPES.includes(sfx), `Missing SFX type: ${sfx}`);
+  playRetroTone(sfx, true); // Safe no-op in Node SSR/test env
+}
+setOfficeBgm('lofi');
+unlockAudio();
+stopOfficeBgm();
 
 globalThis.fetch = origFetch;
 console.log('ALL_SMOKE_TESTS_PASSED');

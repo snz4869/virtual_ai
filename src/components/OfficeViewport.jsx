@@ -205,7 +205,7 @@ export default function OfficeViewport({
       <div className="bg-slate-900/95 border-t border-slate-800 px-4 py-2 flex items-center justify-between gap-2 text-[11px] shrink-0">
         <span className="text-slate-400 shrink-0">
           {OFFICE_ROOMS.length} Rooms •{' '}
-          {workflowMode === 'fast' ? 'Fast Mode' : `QA Loop (max ${maxRevisions}x)`}
+          {workflowMode === 'solo' ? 'Solo Full-Stack' : `Tim Relay • QA Loop (max ${maxRevisions}x)`}
         </span>
         <span className="font-mono text-indigo-400 truncate">{pipelineStatus}</span>
       </div>

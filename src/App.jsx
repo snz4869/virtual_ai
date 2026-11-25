@@ -5,10 +5,11 @@ import WorkPanel from './components/WorkPanel';
 import SettingsModal from './components/SettingsModal';
 import TeamSopModal from './components/TeamSopModal';
 import HtmlPreviewModal from './components/HtmlPreviewModal';
+import GrillingModal from './components/GrillingModal';
 import { MEETING_SEATS, PRESET_PROMPTS } from './constants/officeConfig';
 import { createSession, useOfficeState } from './hooks/useOfficeState';
 import { useOfficeRelay } from './hooks/useOfficeRelay';
-import { playRetroTone } from './utils/audio';
+import { playRetroTone, setOfficeBgm, stopOfficeBgm, unlockAudio } from './utils/audio';
 import { ALLOWED_FILE_TYPES, prepareFilePayload } from './utils/fileParser';
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
   const [followDirector, setFollowDirector] = useState(false);
   const [showAmbientStaff, setShowAmbientStaff] = useState(true);
   const [activeModal, setActiveModal] = useState(null);
+  const [grillingMinimized, setGrillingMinimized] = useState(false);
 
   const fxEventsRef = useRef([]);
   const logEndRef = useRef(null);
@@ -100,7 +102,7 @@ export default function App() {
     fxEnabled,
     maxRevisions: office.maxRevisions,
     workflowMode: office.workflowMode,
-    fastAgentId: office.fastAgentId,
+    grillingEnabled: office.grillingEnabled,
     promptInput,
     setPromptInput,
     selectedFile,
@@ -118,6 +120,28 @@ export default function App() {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [office.logs.length, logFilter, office.activeSessionId]);
+
+  useEffect(() => {
+    if (relay.pendingGrilling) {
+      setGrillingMinimized(false);
+    }
+  }, [relay.pendingGrilling]);
+
+  // Sinkronkan Office Lobby BGM & buka kunci Web Audio saat interaksi pertama pengguna
+  useEffect(() => {
+    setOfficeBgm(office.bgmTrack);
+  }, [office.bgmTrack]);
+
+  useEffect(() => {
+    const onFirstGesture = () => unlockAudio();
+    window.addEventListener('pointerdown', onFirstGesture, { once: true });
+    window.addEventListener('keydown', onFirstGesture, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', onFirstGesture);
+      window.removeEventListener('keydown', onFirstGesture);
+      stopOfficeBgm();
+    };
+  }, []);
 
   const handleNewSession = () => {
     if (relay.isRelayRunning) {
@@ -240,7 +264,17 @@ export default function App() {
         simSpeed={simSpeed}
         onChangeSimSpeed={setSimSpeed}
         fxEnabled={fxEnabled}
-        onToggleFx={() => setFxEnabled((v) => !v)}
+        onToggleFx={() => {
+          const next = !fxEnabled;
+          setFxEnabled(next);
+          if (next) playRetroTone('click', true);
+        }}
+        bgmTrack={office.bgmTrack}
+        onChangeBgmTrack={(trackId) => {
+          unlockAudio();
+          office.setBgmTrack(trackId);
+          playRetroTone('click', fxEnabled);
+        }}
         apiMode={office.apiMode}
         aiProvider={office.aiProvider}
         agyAvailable={office.agyStatus.available}
@@ -297,8 +331,10 @@ export default function App() {
           onClearFile={clearFile}
           workflowMode={office.workflowMode}
           onChangeWorkflowMode={office.setWorkflowMode}
-          fastAgentId={office.fastAgentId}
-          onChangeFastAgentId={office.setFastAgentId}
+          grillingEnabled={office.grillingEnabled}
+          onToggleGrilling={() => office.setGrillingEnabled((v) => !v)}
+          pendingGrilling={relay.pendingGrilling}
+          onOpenGrillingModal={() => setGrillingMinimized(false)}
           agents={office.agents}
           isRelayRunning={relay.isRelayRunning}
           onStartRelay={relay.startAutoRelay}
@@ -313,6 +349,17 @@ export default function App() {
       </div>
 
       <HtmlPreviewModal htmlCode={previewHtmlCode} onClose={() => setPreviewHtmlCode(null)} />
+
+      {relay.pendingGrilling && !grillingMinimized && (
+        <GrillingModal
+          grilling={relay.pendingGrilling}
+          onSubmitAnswer={relay.submitGrillingAnswer}
+          onApproveRecommendations={relay.approveGrillingRecommendations}
+          onSkip={relay.skipGrilling}
+          onMinimize={() => setGrillingMinimized(true)}
+          onStopRun={relay.stopActiveRun}
+        />
+      )}
 
       {activeModal === 'settings' && (
         <SettingsModal
@@ -350,9 +397,6 @@ export default function App() {
           onSave={(nextAgents) => {
             office.setAgents(nextAgents);
             office.syncNpcsWithAgents(nextAgents);
-            if (!nextAgents.some((a) => a.id === office.fastAgentId)) {
-              office.setFastAgentId(nextAgents[0]?.id || 'raka');
-            }
             if (logFilter !== 'all' && !nextAgents.some((a) => a.id === logFilter)) {
               setLogFilter('all');
             }
