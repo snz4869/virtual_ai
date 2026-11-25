@@ -33,6 +33,8 @@ export default async function handler(req, res) {
             { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
             { role: 'user', content: userPrompt },
           ],
+          max_tokens: 8192,
+          temperature: 0.4,
         }),
       });
 
