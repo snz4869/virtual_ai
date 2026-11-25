@@ -85,9 +85,11 @@ ${projectBrief}`;
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
           { role: 'user', content: userPrompt },
         ],
+        max_tokens: 8192,
+        temperature: 0.4,
       }),
     });
     const dsData = await dsRes.json();
