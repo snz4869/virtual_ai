@@ -213,7 +213,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_nadia,
     deskSpot: WAYPOINTS.desk_nadia,
     deskRect: { x: 760, y: 540, w: 96, h: 46 },
-    sop: 'Audit hasil kerja Raka terhadap Perintah Director. Hitung/cek ulang secara mandiri: jika semua syarat terpenuhi dan akurat, berikan ringkasan validasi singkat dengan label [STATUS: VERIFIED]; jika ada kesalahan logika, hitungan, atau celah keamanan/edge-case, langsung tuliskan koreksi perbaikannya dengan label [STATUS: REVISED].',
+    sop: 'Audit hasil kerja Raka terhadap Perintah Director. Jika semua syarat terpenuhi, akurat, dan bebas bug, tutup laporan dengan label persis: [STATUS: VERIFIED]. Jika ada kekurangan, bug, atau syarat belum terpenuhi, tuliskan poin perbaikan spesifik yang harus dikerjakan Raka dan tutup dengan label persis: [STATUS: REVISED].'
   },
 ];
 
