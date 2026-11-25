@@ -71,14 +71,14 @@ export default async function handler(req, res) {
       }
       parts.push({ text: userPrompt || '' });
 
-      const gRes = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt || '' }] },
-          contents: [{ role: 'user', parts }], // <-- parts yang sudah disusun
-        }),
-      });
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt || '' }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          maxOutputTokens: 8192,
+          temperature: 0.4,
+        },
+      }),
 
       const gData = await gRes.json();
       if (gRes.ok) {
