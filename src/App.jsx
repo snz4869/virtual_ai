@@ -22,6 +22,7 @@ import { executeAgentPrompt } from './utils/geminiClient';
 import { playRetroTone } from './utils/audio';
 
 const STORAGE_KEY = 'virtual_office_ai_v2_1';
+const MAX_REVISIONS = 2; // Maksimal 2x revisi (total 3x percobaan Raka) agar kuota RPD aman
 
 function formatMarkdownLite(rawText) {
   let text = String(rawText || '')
@@ -128,14 +129,12 @@ export default function App() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Validasi tipe file
     if (!ALLOWED_FILE_TYPES.includes(file.type)) {
       showToast('Tipe file tidak didukung. Gunakan PDF, DOCX, XLSX, PNG, JPG, atau WEBP.', 'error');
       e.target.value = '';
       return;
     }
 
-    // Validasi ukuran (batas Vercel 4.5MB, base64 membengkak ~33%)
     if (file.size > 3 * 1024 * 1024) {
       showToast('File terlalu besar (maks ~3MB untuk mode serverless).', 'error');
       e.target.value = '';
@@ -143,7 +142,7 @@ export default function App() {
     }
 
     setSelectedFile(file);
-    setFileBase64(null); // reset dulu
+    setFileBase64(null);
     setIsReadingFile(true);
 
     try {
@@ -218,7 +217,9 @@ export default function App() {
       if (saved) {
         if (saved.projectBrief) setProjectBrief(saved.projectBrief);
         if (saved.apiMode) setApiMode(saved.apiMode);
+        if (saved.aiProvider) setAiProvider(saved.aiProvider);
         if (saved.geminiApiKey) setGeminiApiKey(saved.geminiApiKey);
+        if (saved.deepseekApiKey) setDeepseekApiKey(saved.deepseekApiKey);
         if (Array.isArray(saved.logs)) setLogs(saved.logs);
         if (Array.isArray(saved.agents) && saved.agents.length === 3) {
           const mergedAgents = DEFAULT_AGENTS.map((def, idx) => ({
@@ -246,12 +247,20 @@ export default function App() {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ projectBrief, apiMode, geminiApiKey, agents, logs })
+        JSON.stringify({
+          projectBrief,
+          apiMode,
+          aiProvider,
+          geminiApiKey,
+          deepseekApiKey,
+          agents,
+          logs
+        })
       );
     } catch {
       // ignore
     }
-  }, [projectBrief, apiMode, geminiApiKey, agents, logs]);
+  }, [projectBrief, apiMode, aiProvider, geminiApiKey, deepseekApiKey, agents, logs]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -293,7 +302,6 @@ export default function App() {
   const startAutoRelay = async () => {
     if (isRelayRunning) return;
 
-    // Cek apakah file masih dibaca
     if (isReadingFile) {
       showToast('File sedang dibaca, tunggu sebentar...', 'info');
       return;
@@ -305,7 +313,6 @@ export default function App() {
       return;
     }
 
-    // Jika ada file terpilih tapi base64 belum siap
     if (selectedFile && !fileBase64) {
       showToast('File belum siap. Coba pilih ulang file.', 'error');
       return;
@@ -331,9 +338,15 @@ export default function App() {
 
     const currentLogs = [...logs, directorEntry];
     const [alex, raka, nadia] = agents;
+    const attachedFileData =
+      fileBase64 && selectedFile
+        ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
+        : null;
 
     try {
-      // 1. Alex (Tech Lead Room)
+      // =====================================================================
+      // 1. ALEX (Tech Lead Room) — Menyusun Rencana & Kontrak Kerja
+      // =====================================================================
       if (abortRef.current) throw new Error('ABORTED');
       setPipelineStatus(`1/3: ${alex.name} menuju Tech Lead Room...`);
       await moveNpcTo('alex', WAYPOINTS.desk_alex, {
@@ -352,10 +365,8 @@ export default function App() {
         clientApiKey: geminiApiKey,
         simSpeed,
         provider: aiProvider,
-        deepseekApiKey: deepseekApiKey,
-        fileData: fileBase64 && selectedFile
-          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
-          : null,
+        deepseekApiKey,
+        fileData: attachedFileData
       });
       if (abortRef.current) throw new Error('ABORTED');
 
@@ -370,133 +381,236 @@ export default function App() {
       appendLog(alexLog);
       currentLogs.push(alexLog);
 
-      // Handoff to Raka
+      // Handoff awal Alex -> Raka
       setPipelineStatus(`Handoff: ${alex.name} menyerahkan arahan ke Engineering Pod (${raka.name})...`);
       playRetroTone('handoff', fxEnabled);
-      await moveNpcTo('alex', { x: WAYPOINTS.desk_raka.x - 45, y: WAYPOINTS.desk_raka.y + 10 }, {
-        carryingDoc: true,
-        bubble: '📄 Handoff ke Raka...',
-        endState: 'IDLE'
-      });
+      await moveNpcTo(
+        'alex',
+        { x: WAYPOINTS.desk_raka.x - 45, y: WAYPOINTS.desk_raka.y + 10 },
+        {
+          carryingDoc: true,
+          bubble: '📄 Handoff ke Raka...',
+          endState: 'IDLE'
+        }
+      );
       const alexBack = moveNpcTo('alex', WAYPOINTS.lounge_alex, {
         bubble: '☕ Ke Lounge',
         endState: 'IDLE',
         endBubble: ''
       });
 
-      // 2. Raka (Engineering Pod)
-      if (abortRef.current) throw new Error('ABORTED');
-      setPipelineStatus(`2/3: ${raka.name} menuju Engineering Pod...`);
-      await moveNpcTo('raka', WAYPOINTS.desk_raka, {
-        bubble: 'Menuju meja...',
-        endState: 'WORKING',
-        endBubble: '💻 Eksekusi solusi...',
-        endFacing: 'up'
-      });
+      // =====================================================================
+      // 2 & 3. SIKLUS EKSEKUSI & QA REVISION LOOP (RAKA <-> NADIA)
+      // =====================================================================
+      let attempt = 0;
+      let isApproved = false;
+      let lastNadiaFeedback = '';
 
-      if (apiMode === 'live') {
-        setPipelineStatus(`Cooldown API 3 detik sebelum ${raka.name} bekerja...`);
-        await new Promise((r) => setTimeout(r, 3000));
+      while (attempt <= MAX_REVISIONS && !isApproved) {
+        if (abortRef.current) throw new Error('ABORTED');
+        const isRevision = attempt > 0;
+
+        // --- RAKA BEKERJA / REVISI ---
+        setPipelineStatus(
+          isRevision
+            ? `Revisi #${attempt}/${MAX_REVISIONS}: ${raka.name} memperbaiki hasil di Engineering Pod...`
+            : `2/3: ${raka.name} menuju Engineering Pod...`
+        );
+
+        await moveNpcTo('raka', WAYPOINTS.desk_raka, {
+          bubble: isRevision ? `🔧 Revisi #${attempt}...` : 'Menuju meja...',
+          endState: 'WORKING',
+          endBubble: isRevision ? `🛠️ Perbaikan #${attempt}...` : '💻 Eksekusi solusi...',
+          endFacing: 'up'
+        });
+
+        if (apiMode === 'live') {
+          setPipelineStatus(`Cooldown API 3 detik sebelum ${raka.name} bekerja...`);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+        if (abortRef.current) throw new Error('ABORTED');
+
+        const rakaPrompt = isRevision
+          ? `${taskPrompt}\n\n[INSTRUKSI REVISI #${attempt} DARI QA (${nadia.name})]:\nHasil kerja Anda sebelumnya belum lulus audit QA. Perbaiki seluruh temuan/kekurangan di bawah ini secara tuntas tanpa mengulang kesalahan lama:\n\n${lastNadiaFeedback}`
+          : taskPrompt;
+
+        const rakaOut = await executeAgentPrompt({
+          agent: raka,
+          prompt: rakaPrompt,
+          brief: projectBrief,
+          recentLogs: currentLogs,
+          apiMode,
+          clientApiKey: geminiApiKey,
+          simSpeed,
+          provider: aiProvider,
+          deepseekApiKey,
+          fileData: attachedFileData
+        });
+        if (abortRef.current) throw new Error('ABORTED');
+
+        const rakaLog = {
+          agentId: raka.id,
+          agentName: raka.name,
+          agentRole: isRevision ? `${raka.role} • Revisi #${attempt}` : raka.role,
+          badgeClass: raka.badgeClass,
+          borderHex: raka.accentHex,
+          content: rakaOut
+        };
+        appendLog(rakaLog);
+        currentLogs.push(rakaLog);
+
+        // Handoff Raka -> Nadia
+        setPipelineStatus(`Handoff: ${raka.name} menyerahkan hasil ke QA Lab (${nadia.name})...`);
+        playRetroTone('handoff', fxEnabled);
+        await moveNpcTo(
+          'raka',
+          { x: WAYPOINTS.desk_nadia.x + 48, y: WAYPOINTS.desk_nadia.y - 12 },
+          {
+            carryingDoc: true,
+            bubble: isRevision ? `📄 Kirim Revisi #${attempt}...` : '📄 Handoff ke Nadia...',
+            endState: 'IDLE'
+          }
+        );
+
+        // --- NADIA AUDIT QA ---
+        if (abortRef.current) throw new Error('ABORTED');
+        setPipelineStatus(
+          isRevision
+            ? `Audit Ulang #${attempt}: ${nadia.name} memeriksa perbaikan...`
+            : `3/3: ${nadia.name} menuju QA & Review Lab...`
+        );
+
+        await moveNpcTo('nadia', WAYPOINTS.desk_nadia, {
+          bubble: 'Menuju QA Lab...',
+          endState: 'WORKING',
+          endBubble: isRevision ? `🔍 Audit ulang #${attempt}...` : '🔍 Verifikasi QA...',
+          endFacing: 'down'
+        });
+
+        if (apiMode === 'live') {
+          setPipelineStatus(`Cooldown API 3 detik sebelum ${nadia.name} mengaudit...`);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+        if (abortRef.current) throw new Error('ABORTED');
+
+        // Sisipkan aturan status baku pada SOP Nadia agar parser [STATUS: VERIFIED/REVISED] selalu akurat
+        const nadiaAgentWithStatusRule = {
+          ...nadia,
+          sop: `${nadia.sop}\n\nATURAN OUTPUT WAJIB QA:
+1. Periksa hasil kerja terakhir ${raka.name} secara kritis terhadap Perintah Director.
+2. Jika hasil sudah akurat, lengkap, dan bebas bug/kesalahan logika, akhiri respons Anda dengan label persis: [STATUS: VERIFIED]
+3. Jika masih ada kekurangan, bug, atau syarat yang belum terpenuhi (dan percobaan saat ini belum mencapai batas), tuliskan daftar perbaikan spesifik yang harus dilakukan ${raka.name}, lalu akhiri respons dengan label persis: [STATUS: REVISED]`
+        };
+
+        const nadiaPrompt = isRevision
+          ? `${taskPrompt}\n\n[AUDIT ULANG REVISI #${attempt}]: Periksa apakah ${raka.name} sudah memperbaiki semua catatan revisi sebelumnya. Akhiri dengan [STATUS: VERIFIED] jika lulus, atau [STATUS: REVISED] jika masih gagal.`
+          : `${taskPrompt}\n\nLakukan audit QA pada hasil kerja ${raka.name}. Akhiri dengan [STATUS: VERIFIED] jika lulus, atau [STATUS: REVISED] beserta poin koreksi jika gagal.`;
+
+        const nadiaOut = await executeAgentPrompt({
+          agent: nadiaAgentWithStatusRule,
+          prompt: nadiaPrompt,
+          brief: projectBrief,
+          recentLogs: currentLogs,
+          apiMode,
+          clientApiKey: geminiApiKey,
+          simSpeed,
+          provider: aiProvider,
+          deepseekApiKey,
+          fileData: attachedFileData
+        });
+        if (abortRef.current) throw new Error('ABORTED');
+
+        const verified = /\[STATUS:\s*VERIFIED\]/i.test(nadiaOut);
+
+        const nadiaLog = {
+          agentId: nadia.id,
+          agentName: nadia.name,
+          agentRole: verified
+            ? `${nadia.role} • APPROVED`
+            : `${nadia.role} • REJECTED (#${attempt + 1})`,
+          badgeClass: nadia.badgeClass,
+          borderHex: nadia.accentHex,
+          content: nadiaOut
+        };
+        appendLog(nadiaLog);
+        currentLogs.push(nadiaLog);
+
+        if (verified) {
+          isApproved = true;
+        } else {
+          lastNadiaFeedback = nadiaOut;
+          attempt++;
+
+          if (attempt <= MAX_REVISIONS) {
+            // Nadia berjalan mengembalikan dokumen revisi ke meja Raka
+            setPipelineStatus(
+              `QA Gagal: ${nadia.name} mengembalikan tugas ke ${raka.name} untuk Revisi #${attempt}...`
+            );
+            playRetroTone('handoff', fxEnabled);
+            await moveNpcTo(
+              'nadia',
+              { x: WAYPOINTS.desk_raka.x + 45, y: WAYPOINTS.desk_raka.y + 10 },
+              {
+                carryingDoc: true,
+                bubble: `❌ Revisi #${attempt} ke Raka`,
+                endState: 'IDLE'
+              }
+            );
+          }
+        }
       }
 
-      const rakaOut = await executeAgentPrompt({
-        agent: raka,
-        prompt: taskPrompt,
-        brief: projectBrief,
-        recentLogs: currentLogs,
-        apiMode,
-        clientApiKey: geminiApiKey,
-        simSpeed,
-        provider: aiProvider,
-        deepseekApiKey: deepseekApiKey,
-        fileData: fileBase64 && selectedFile
-          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
-          : null,
-      });
-
-      if (abortRef.current) throw new Error('ABORTED');
-
-      const rakaLog = {
-        agentId: raka.id,
-        agentName: raka.name,
-        agentRole: raka.role,
-        badgeClass: raka.badgeClass,
-        borderHex: raka.accentHex,
-        content: rakaOut
-      };
-      appendLog(rakaLog);
-      currentLogs.push(rakaLog);
-
-      // Handoff to Nadia
-      setPipelineStatus(`Handoff: ${raka.name} menyerahkan hasil ke QA Lab (${nadia.name})...`);
-      playRetroTone('handoff', fxEnabled);
-      await moveNpcTo('raka', { x: WAYPOINTS.desk_nadia.x + 48, y: WAYPOINTS.desk_nadia.y - 12 }, {
-        carryingDoc: true,
-        bubble: '📄 Handoff ke Nadia...',
-        endState: 'IDLE'
-      });
+      // Setelah loop selesai (lulus atau mencapai batas maksimal revisi), Raka kembali ke lounge
       const rakaBack = moveNpcTo('raka', WAYPOINTS.lounge_raka, {
         bubble: '☕ Ke Lounge',
         endState: 'IDLE',
         endBubble: ''
       });
 
-      // 3. Nadia (QA & Review Lab)
-      if (abortRef.current) throw new Error('ABORTED');
-      setPipelineStatus(`3/3: ${nadia.name} menuju QA & Review Lab...`);
-      await moveNpcTo('nadia', WAYPOINTS.desk_nadia, {
-        bubble: 'Menuju QA Lab...',
-        endState: 'WORKING',
-        endBubble: '🔍 Verifikasi QA...',
-        endFacing: 'down'
-      });
-
-      if (apiMode === 'live') {
-        setPipelineStatus(`Cooldown API 3 detik sebelum ${nadia.name} bekerja...`);
-        await new Promise((r) => setTimeout(r, 3000));
+      if (!isApproved) {
+        appendLog({
+          agentId: nadia.id,
+          agentName: nadia.name,
+          agentRole: `${nadia.role} • Escalation`,
+          badgeClass: nadia.badgeClass,
+          borderHex: '#f59e0b',
+          content: `⚠️ **Peringatan QA:** Batas maksimal **${MAX_REVISIONS}x revisi** telah tercapai namun kriteria QA belum terpenuhi sepenuhnya. Mohon Director meninjau hasil terakhir ${raka.name} secara manual.`
+        });
       }
 
-      const nadiaOut = await executeAgentPrompt({
-        agent: nadia,
-        prompt: taskPrompt,
-        brief: projectBrief,
-        recentLogs: currentLogs,
-        apiMode,
-        clientApiKey: geminiApiKey,
-        simSpeed,
-        provider: aiProvider,
-        deepseekApiKey: deepseekApiKey,
-        fileData: fileBase64 && selectedFile
-          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
-          : null,
-      });
-
-      if (abortRef.current) throw new Error('ABORTED');
-
-      const nadiaLog = {
-        agentId: nadia.id,
-        agentName: nadia.name,
-        agentRole: nadia.role,
-        badgeClass: nadia.badgeClass,
-        borderHex: nadia.accentHex,
-        content: nadiaOut
-      };
-      appendLog(nadiaLog);
-
-      // Report to Director Office
-      setPipelineStatus(`Selesai: ${nadia.name} melapor ke Director Office!`);
+      // Report ke Director Office
+      setPipelineStatus(
+        isApproved
+          ? `Selesai (QA Approved): ${nadia.name} melapor ke Director Office!`
+          : `Selesai (Batas Revisi): ${nadia.name} melapor ke Director Office!`
+      );
       playRetroTone('report', fxEnabled);
       await moveNpcTo('nadia', WAYPOINTS.director_report, {
         carryingDoc: true,
-        bubble: '📋 Melapor ke Director...',
+        bubble: isApproved ? '✅ QA Approved! Lapor...' : '⚠️ Lapor Batas Revisi...',
         endState: 'REPORTING',
         showExclamation: true,
         endFacing: 'left'
       });
 
       await Promise.all([alexBack, rakaBack]);
-      setPipelineStatus('Estafet Selesai • Laporan siap direview (!)');
-      showToast('Seluruh tim telah menyelesaikan tugas secara proporsional!', 'success');
+
+      if (isApproved) {
+        setPipelineStatus(
+          attempt > 0
+            ? `Estafet Selesai • Lulus QA setelah ${attempt}x revisi (!)`
+            : 'Estafet Selesai • Lulus QA pada percobaan pertama (!)'
+        );
+        showToast(
+          attempt > 0
+            ? `Tugas lulus QA setelah ${attempt}x revisi!`
+            : 'Tugas langsung lulus QA!',
+          'success'
+        );
+      } else {
+        setPipelineStatus(`Estafet Selesai • Batas ${MAX_REVISIONS}x revisi tercapai (!)`);
+        showToast(`Batas maksimal ${MAX_REVISIONS}x revisi tercapai. Silakan tinjau laporan.`, 'info');
+      }
     } catch (err) {
       if (err.message === 'ABORTED') {
         setPipelineStatus('Estafet dihentikan oleh Director.');
@@ -568,10 +682,11 @@ export default function App() {
         clientApiKey: geminiApiKey,
         simSpeed,
         provider: aiProvider,
-        deepseekApiKey: deepseekApiKey,
-        fileData: fileBase64 && selectedFile
-          ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
-          : null,
+        deepseekApiKey,
+        fileData:
+          fileBase64 && selectedFile
+            ? { base64: fileBase64, mimeType: selectedFile.type, fileName: selectedFile.name }
+            : null
       });
       if (abortRef.current) throw new Error('ABORTED');
 
@@ -674,7 +789,7 @@ export default function App() {
                 BRD v2.1 • 5 Rooms
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Adaptive Multi-Agent Workspace (Anti-Overengineering)</p>
+            <p className="text-[11px] text-slate-400">Adaptive Multi-Agent Workspace (QA Revision Loop)</p>
           </div>
         </div>
 
@@ -710,7 +825,9 @@ export default function App() {
             onClick={() => {
               setDraftBrief(projectBrief);
               setDraftMode(apiMode);
+              setDraftProvider(aiProvider);
               setDraftKey(geminiApiKey);
+              setDraftDeepseekKey(deepseekApiKey);
               setActiveModal('settings');
             }}
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border ${
@@ -729,7 +846,9 @@ export default function App() {
             onClick={() => {
               setDraftBrief(projectBrief);
               setDraftMode(apiMode);
+              setDraftProvider(aiProvider);
               setDraftKey(geminiApiKey);
+              setDraftDeepseekKey(deepseekApiKey);
               setActiveModal('settings');
             }}
             className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium border border-slate-700 flex items-center gap-1.5"
@@ -806,7 +925,7 @@ export default function App() {
           )}
 
           <div className="bg-slate-900/95 border-t border-slate-800 px-4 py-2 flex items-center justify-between text-[11px] shrink-0">
-            <span className="text-slate-400">5 Rooms • Idle Roaming Active</span>
+            <span className="text-slate-400">5 Rooms • QA Loop Active</span>
             <span className="font-mono text-indigo-400 truncate">{pipelineStatus}</span>
           </div>
         </section>
@@ -919,7 +1038,7 @@ export default function App() {
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
             {filteredLogs.length === 0 ? (
               <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 text-center text-xs text-slate-400 my-4">
-                Belum ada log kerja. Coba tombol <strong>Tes Ringkas (Akar 34)</strong> atau <strong>Tes Teknis (API)</strong> untuk melihat mode adaptif anti-overengineering.
+                Belum ada log kerja. Coba tombol <strong>Tes Ringkas (Akar 34)</strong> atau <strong>Tes Teknis (API)</strong> untuk melihat mode adaptif &amp; siklus revisi QA.
               </div>
             ) : (
               filteredLogs.map((item) => (
@@ -954,7 +1073,7 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Konfigurasi Project Brief & AI API</h3>
+              <h3 className="text-sm font-bold text-white">Konfigurasi Project Brief &amp; AI API</h3>
               <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
@@ -985,7 +1104,7 @@ export default function App() {
                   checked={draftMode === 'live'}
                   onChange={() => setDraftMode('live')}
                 />
-                <span>Live AI API (Gemini & DeepSeek)</span>
+                <span>Live AI API (Gemini &amp; DeepSeek)</span>
               </label>
 
               {draftMode === 'live' && (
