@@ -9,6 +9,7 @@ import {
   Square,
   Trash2,
   User,
+  X,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { FULLSTACK_AGENT_ID, PRESET_PROMPTS } from '../constants/officeConfig';
@@ -51,10 +52,11 @@ export default function WorkPanel({
   logs,
   filteredLogs,
   onPreviewHtml,
+  onClosePanel,
   logEndRef,
 }) {
   return (
-    <section className="w-full lg:w-[40%] flex-1 lg:h-full bg-slate-900/50 flex flex-col min-h-0">
+    <section className="w-full h-full flex-1 bg-slate-900/90 flex flex-col min-h-0">
       {/* SESSION SWITCHER BAR */}
       <div className="px-3.5 py-2 border-b border-slate-800 bg-slate-950/90 flex items-center gap-2 shrink-0">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 shrink-0">
@@ -91,6 +93,16 @@ export default function WorkPanel({
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
+        {onClosePanel && (
+          <button
+            type="button"
+            onClick={onClosePanel}
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 shrink-0"
+            title="Sembunyikan panel Perintah Director (kantor full screen)"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* DIRECTOR COMMAND BAR */}

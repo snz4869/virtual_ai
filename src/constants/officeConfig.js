@@ -1,4 +1,4 @@
-export const WORLD_W = 1000;
+export const WORLD_W = 1880;
 export const WORLD_H = 1220;
 
 export const OFFICE_ROOMS = [
@@ -79,6 +79,51 @@ export const OFFICE_ROOMS = [
     door: { x: 234, y: 840, h: 48, side: 'right' },
     floatingTag: 'Full-Stack Lab',
   },
+  // === EAST WING (Perluasan kantor widescreen) ===
+  {
+    id: 'server_lab',
+    label: 'AI & Server Lab',
+    x: 1020,
+    y: 24,
+    w: 436,
+    h: 416,
+    floorColor: '#dbe6f0',
+    tileAlt: '#cfdceb',
+    floatingTag: 'AI & Server Lab',
+  },
+  {
+    id: 'cafe_terrace',
+    label: 'Office Cafe & Bar',
+    x: 1476,
+    y: 24,
+    w: 380,
+    h: 516,
+    floorColor: '#f1e4cd',
+    tileAlt: '#e7d7bc',
+    floatingTag: 'Office Cafe',
+  },
+  {
+    id: 'design_studio',
+    label: 'Design & Creative Studio',
+    x: 1020,
+    y: 460,
+    w: 436,
+    h: 360,
+    floorColor: '#f6eadc',
+    tileAlt: '#eedfcd',
+    floatingTag: 'Design Studio',
+  },
+  {
+    id: 'townhall',
+    label: 'Townhall & Demo Stage',
+    x: 1020,
+    y: 840,
+    w: 836,
+    h: 356,
+    floorColor: '#dfe4f2',
+    tileAlt: '#d4dbe9',
+    floatingTag: 'Townhall Stage',
+  },
 ];
 
 // Kursi meja rapat di Ruang Director (3 kiri, 3 kanan)
@@ -95,9 +140,17 @@ export const MEETING_SEATS = {
   ],
 };
 
+export const DIRECTOR_SEAT_ZONE = {
+  x: 66,
+  y: 152,
+  w: 76,
+  h: 54,
+};
+
 export const WAYPOINTS = {
   directorDesk: { x: 92, y: 178 },
   director_home: { x: 92, y: 178 },
+  directorStand: { x: 170, y: 300 },
   directorDoor: { x: 274, y: 375 },
   director_report: { x: 248, y: 223 },
 
@@ -128,14 +181,21 @@ export const WAYPOINTS = {
   pingPongSpot: { x: 535, y: 868 },
   pingPongSouth: { x: 535, y: 1068 },
   pantrySpot: { x: 130, y: 500 },
+
+  // East Wing Waypoints
+  eastHallway: { x: 998, y: 450 },
+  serverLabSpot: { x: 1235, y: 210 },
+  cafeBarSpot: { x: 1650, y: 185 },
+  designStudioSpot: { x: 1240, y: 635 },
+  townhallSpot: { x: 1440, y: 985 },
 };
 
 export const OFFICE_COLLIDERS = [
-  // Dinding luar kantor
-  { x: 0, y: 0, w: 1000, h: 20 },
-  { x: 0, y: 1200, w: 1000, h: 20 },
+  // Dinding luar kantor (Widescreen 1880 x 1220)
+  { x: 0, y: 0, w: 1880, h: 20 },
+  { x: 0, y: 1200, w: 1880, h: 20 },
   { x: 0, y: 0, w: 20, h: 1220 },
-  { x: 980, y: 0, w: 20, h: 1220 },
+  { x: 1860, y: 0, w: 20, h: 1220 },
 
   // Dinding & Meja Meeting / Director (pintu bawah di x: 250..298)
   { x: 330, y: 20, w: 10, h: 328 },
@@ -188,6 +248,30 @@ export const OFFICE_COLLIDERS = [
   { x: 706, y: 766, w: 10, h: 434 },
   { x: 478, y: 895, w: 114, h: 150 },
   { x: 645, y: 905, w: 42, h: 115 },
+
+  // === EAST WING COLLIDERS ===
+  // AI & Server Lab (racks di atas, 2 workstation di bawah)
+  { x: 1055, y: 50, w: 220, h: 52 },
+  { x: 1320, y: 50, w: 108, h: 52 },
+  { x: 1070, y: 270, w: 96, h: 46 },
+  { x: 1280, y: 270, w: 96, h: 46 },
+
+  // Office Cafe & Bar (bar counter atas + 3 meja bundar)
+  { x: 1510, y: 52, w: 310, h: 58 },
+  { x: 1530, y: 250, w: 68, h: 68 },
+  { x: 1715, y: 250, w: 68, h: 68 },
+  { x: 1620, y: 390, w: 72, h: 68 },
+
+  // Design & Creative Studio (2 workstation + meja kolaborasi tengah)
+  { x: 1065, y: 520, w: 96, h: 46 },
+  { x: 1295, y: 520, w: 96, h: 46 },
+  { x: 1150, y: 690, w: 168, h: 64 },
+
+  // Townhall & Demo Stage (panggung kanan + 2 blok kursi penonton)
+  { x: 1690, y: 905, w: 130, h: 220 },
+  { x: 1110, y: 940, w: 190, h: 54 },
+  { x: 1110, y: 1045, w: 190, h: 54 },
+  { x: 1365, y: 1045, w: 190, h: 54 },
 ];
 
 export const AVAILABLE_MODELS = [
@@ -462,6 +546,67 @@ export const AMBIENT_STAFF = [
     initialMode: 'SITTING_DESK',
     workBubbles: ['📦 Cek inventaris', '☕ Stok kopi aman', '📅 Atur jadwal'],
   },
+  // Staf ambient East Wing
+  {
+    id: 'staff-rina',
+    name: 'Rina',
+    role: 'AI Infra',
+    accentHex: '#38bdf8',
+    accentLight: '#bae6fd',
+    shirtColor: '#0369a1',
+    hairColor: '#0f172a',
+    skinColor: '#f8cba6',
+    deskSpot: { x: 1118, y: 246 },
+    deskFacing: 'down',
+    deskRect: { x: 1070, y: 270, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['🖥️ Pantau GPU', '⚡ Latensi aman', '📊 Cek metrik'],
+  },
+  {
+    id: 'staff-hendra',
+    name: 'Hendra',
+    role: 'Cloud Eng',
+    accentHex: '#2dd4bf',
+    accentLight: '#99f6e4',
+    shirtColor: '#0f766e',
+    hairColor: '#1e293b',
+    skinColor: '#e5b887',
+    deskSpot: { x: 1328, y: 246 },
+    deskFacing: 'down',
+    deskRect: { x: 1280, y: 270, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['☁️ Scaling node', '🔒 Audit firewall', '⚙️ Backup OK'],
+  },
+  {
+    id: 'staff-vina',
+    name: 'Vina',
+    role: 'Brand Designer',
+    accentHex: '#f472b6',
+    accentLight: '#fbcfe8',
+    shirtColor: '#be185d',
+    hairColor: '#451a03',
+    skinColor: '#fde68a',
+    deskSpot: { x: 1113, y: 496 },
+    deskFacing: 'down',
+    deskRect: { x: 1065, y: 520, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['🎨 Eksplor warna', '✏️ Sketsa ikon', '🖼️ Susun moodboard'],
+  },
+  {
+    id: 'staff-tio',
+    name: 'Tio',
+    role: 'Office Barista',
+    accentHex: '#f59e0b',
+    accentLight: '#fde68a',
+    shirtColor: '#b45309',
+    hairColor: '#1c1917',
+    skinColor: '#f1c27d',
+    deskSpot: { x: 1655, y: 145 },
+    deskFacing: 'up',
+    deskRect: { x: 1510, y: 52, w: 310, h: 58 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['☕ Seduh latte', '🥐 Siapin snack', '✨ Cafe buka!'],
+  },
 ];
 
 export const AMBIENT_ACTIVITIES = [
@@ -472,4 +617,8 @@ export const AMBIENT_ACTIVITIES = [
   { spot: { x: 535, y: 1068 }, facing: 'up', bubble: '🏓 Smash!' },
   { spot: { x: 175, y: 92 }, facing: 'up', bubble: '📝 Cek whiteboard' },
   { spot: { x: 914, y: 905 }, facing: 'up', bubble: '💬 Diskusi singkat' },
+  { spot: { x: 1650, y: 185 }, facing: 'up', bubble: '☕ Pesan espresso' },
+  { spot: { x: 1235, y: 210 }, facing: 'up', bubble: '🖥️ Cek server lab' },
+  { spot: { x: 1240, y: 635 }, facing: 'down', bubble: '🎨 Lihat desain' },
+  { spot: { x: 1440, y: 985 }, facing: 'right', bubble: '🎤 Latihan demo' },
 ];

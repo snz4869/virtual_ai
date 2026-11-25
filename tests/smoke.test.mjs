@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import handler from '../api/interact.js';
 import { isOutputTruncated, normalizeAgyEventLine } from '../server/agyBridge.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
-import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, CORE_AGENT_IDS, DEFAULT_AGENTS, EXTRA_AGENT_SLOTS, FULLSTACK_AGENT_ID, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
+import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, CORE_AGENT_IDS, DEFAULT_AGENTS, DIRECTOR_SEAT_ZONE, EXTRA_AGENT_SLOTS, FULLSTACK_AGENT_ID, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
 import { buildOfficePath, isFootBlocked } from '../src/utils/pathfinding.js';
 import {
   MAX_GRILLING_ROUNDS,
@@ -32,8 +32,8 @@ function assertSegmentClear(ax, ay, bx, by, label) {
   }
 }
 
-// 1. Pathfinding (Min-Heap A* + Smoothing) across rooms
-for (const targetKey of ['pantrySpot', 'pingPongSpot', 'loungeSofa', 'director_report', 'desk_alex', 'desk_raka', 'desk_nadia', 'desk_kael', 'lounge_kael']) {
+// 1. Pathfinding (Min-Heap A* + Smoothing) across rooms (West + East Wing)
+for (const targetKey of ['pantrySpot', 'pingPongSpot', 'loungeSofa', 'director_report', 'directorStand', 'desk_alex', 'desk_raka', 'desk_nadia', 'desk_kael', 'lounge_kael', 'serverLabSpot', 'cafeBarSpot', 'designStudioSpot', 'townhallSpot']) {
   const start = WAYPOINTS.lounge_alex;
   const path = buildOfficePath(start.x, start.y, WAYPOINTS[targetKey]);
   assert.ok(path.length > 0, `Path to ${targetKey} must exist`);
@@ -360,6 +360,18 @@ for (const sfx of ['step', 'click', 'greet', 'start', 'work', 'handoff', 'grilli
 setOfficeBgm('lofi');
 unlockAudio();
 stopOfficeBgm();
+
+// 10. Director standing start spot -> Director seat path & seat hitbox
+assert.equal(isFootBlocked(WAYPOINTS.directorStand.x, WAYPOINTS.directorStand.y), false, 'Director standing start must be clear');
+const dirStandToSeat = buildOfficePath(WAYPOINTS.directorStand.x, WAYPOINTS.directorStand.y, MEETING_SEATS.director);
+assert.ok(dirStandToSeat.length > 0, 'Director must have valid path from standing start to seat');
+assert.ok(
+  MEETING_SEATS.director.x >= DIRECTOR_SEAT_ZONE.x &&
+    MEETING_SEATS.director.x <= DIRECTOR_SEAT_ZONE.x + DIRECTOR_SEAT_ZONE.w &&
+    MEETING_SEATS.director.y >= DIRECTOR_SEAT_ZONE.y &&
+    MEETING_SEATS.director.y <= DIRECTOR_SEAT_ZONE.y + DIRECTOR_SEAT_ZONE.h,
+  'DIRECTOR_SEAT_ZONE must cover Director chair coordinates'
+);
 
 globalThis.fetch = origFetch;
 console.log('ALL_SMOKE_TESTS_PASSED');

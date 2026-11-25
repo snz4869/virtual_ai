@@ -6,11 +6,12 @@ import SettingsModal from './components/SettingsModal';
 import TeamSopModal from './components/TeamSopModal';
 import HtmlPreviewModal from './components/HtmlPreviewModal';
 import GrillingModal from './components/GrillingModal';
-import { MEETING_SEATS, PRESET_PROMPTS } from './constants/officeConfig';
+import { MEETING_SEATS, PRESET_PROMPTS, WAYPOINTS } from './constants/officeConfig';
 import { createSession, useOfficeState } from './hooks/useOfficeState';
 import { useOfficeRelay } from './hooks/useOfficeRelay';
 import { playRetroTone, setOfficeBgm, stopOfficeBgm, unlockAudio } from './utils/audio';
 import { ALLOWED_FILE_TYPES, prepareFilePayload } from './utils/fileParser';
+import { buildOfficePath } from './utils/pathfinding';
 
 export default function App() {
   const office = useOfficeState();
@@ -31,6 +32,7 @@ export default function App() {
   const [showAmbientStaff, setShowAmbientStaff] = useState(true);
   const [activeModal, setActiveModal] = useState(null);
   const [grillingMinimized, setGrillingMinimized] = useState(false);
+  const [isWorkPanelOpen, setIsWorkPanelOpen] = useState(false);
 
   const fxEventsRef = useRef([]);
   const logEndRef = useRef(null);
@@ -118,14 +120,66 @@ export default function App() {
   });
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [office.logs.length, logFilter, office.activeSessionId]);
+    if (!isWorkPanelOpen) return;
+    const scroller = logEndRef.current?.parentElement;
+    if (scroller) {
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+    }
+  }, [office.logs.length, logFilter, office.activeSessionId, isWorkPanelOpen]);
 
   useEffect(() => {
     if (relay.pendingGrilling) {
       setGrillingMinimized(false);
+      setIsWorkPanelOpen(true);
     }
   }, [relay.pendingGrilling]);
+
+  const sitDirectorAndOpenPanel = () => {
+    unlockAudio();
+    setIsWorkPanelOpen(true);
+    const dir = office.directorRef.current;
+    const seat = MEETING_SEATS.director;
+    if (!dir) return;
+
+    if (Math.hypot(dir.x - seat.x, dir.y - seat.y) <= 12) {
+      dir.x = seat.x;
+      dir.y = seat.y;
+      dir.facing = seat.facing;
+      dir.pathQueue = [];
+      dir.onArriveCallback = null;
+      dir.isMoving = false;
+      dir.isSitting = true;
+      playRetroTone('approve', fxEnabled);
+      return;
+    }
+
+    dir.isSitting = false;
+    dir.targetMarker = { x: seat.x, y: seat.y, ttl: 0.9 };
+    dir.pathQueue = buildOfficePath(dir.x, dir.y, seat);
+    dir.onArriveCallback = () => {
+      dir.x = seat.x;
+      dir.y = seat.y;
+      dir.facing = seat.facing;
+      dir.isSitting = true;
+      playRetroTone('approve', fxEnabled);
+    };
+    playRetroTone('click', fxEnabled);
+  };
+
+  const handleToggleWorkPanel = () => {
+    if (isWorkPanelOpen) {
+      setIsWorkPanelOpen(false);
+      playRetroTone('click', fxEnabled);
+    } else {
+      sitDirectorAndOpenPanel();
+    }
+  };
+
+  const handleDirectorStand = () => {
+    if (!relay.isRelayRunning && !relay.pendingGrilling) {
+      setIsWorkPanelOpen(false);
+    }
+  };
 
   // Sinkronkan Office Lobby BGM & buka kunci Web Audio saat interaksi pertama pengguna
   useEffect(() => {
@@ -182,12 +236,13 @@ export default function App() {
     setSelectedNpcId(null);
     clearFile();
 
-    office.directorRef.current.x = MEETING_SEATS.director.x;
-    office.directorRef.current.y = MEETING_SEATS.director.y;
-    office.directorRef.current.facing = MEETING_SEATS.director.facing;
-    office.directorRef.current.isSitting = true;
+    office.directorRef.current.x = WAYPOINTS.directorStand.x;
+    office.directorRef.current.y = WAYPOINTS.directorStand.y;
+    office.directorRef.current.facing = 'up';
+    office.directorRef.current.isSitting = false;
     office.directorRef.current.pathQueue = [];
     office.directorRef.current.onArriveCallback = null;
+    setIsWorkPanelOpen(false);
 
     office.npcRef.current.forEach((npc, idx) => {
       const def = office.agents[idx] || {};
@@ -275,6 +330,8 @@ export default function App() {
           office.setBgmTrack(trackId);
           playRetroTone('click', fxEnabled);
         }}
+        isWorkPanelOpen={isWorkPanelOpen}
+        onToggleWorkPanel={handleToggleWorkPanel}
         apiMode={office.apiMode}
         aiProvider={office.aiProvider}
         agyAvailable={office.agyStatus.available}
@@ -284,7 +341,7 @@ export default function App() {
         onResetOffice={resetOffice}
       />
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 relative flex overflow-x-clip overflow-y-hidden min-h-0">
         <OfficeViewport
           npcRef={office.npcRef}
           directorRef={office.directorRef}
@@ -306,46 +363,66 @@ export default function App() {
           inspectedAgent={inspectedAgent}
           onSelectNpc={setSelectedNpcId}
           onClearInspector={() => setSelectedNpcId(null)}
+          isWorkPanelOpen={isWorkPanelOpen}
+          onDirectorSit={() => setIsWorkPanelOpen(true)}
+          onDirectorStand={handleDirectorStand}
           isRelayRunning={relay.isRelayRunning}
-          onDispatchSingleAgent={relay.dispatchSingleAgent}
+          onDispatchSingleAgent={() => {
+            setIsWorkPanelOpen(true);
+            relay.dispatchSingleAgent();
+          }}
           workflowMode={office.workflowMode}
           maxRevisions={office.maxRevisions}
           pipelineStatus={relay.pipelineStatus}
         />
 
-        <WorkPanel
-          sessions={office.sessions}
-          activeSession={office.activeSession}
-          onSelectSession={(id) => {
-            office.setActiveSessionId(id);
-            setLogFilter('all');
-          }}
-          onNewSession={handleNewSession}
-          onDeleteSession={handleDeleteSession}
-          promptInput={promptInput}
-          onChangePromptInput={setPromptInput}
-          fileInputRef={fileInputRef}
-          selectedFile={selectedFile}
-          isReadingFile={isReadingFile}
-          onFileChange={handleFileChange}
-          onClearFile={clearFile}
-          workflowMode={office.workflowMode}
-          onChangeWorkflowMode={office.setWorkflowMode}
-          grillingEnabled={office.grillingEnabled}
-          onToggleGrilling={() => office.setGrillingEnabled((v) => !v)}
-          pendingGrilling={relay.pendingGrilling}
-          onOpenGrillingModal={() => setGrillingMinimized(false)}
-          agents={office.agents}
-          isRelayRunning={relay.isRelayRunning}
-          onStartRelay={relay.startAutoRelay}
-          onStopRelay={relay.stopActiveRun}
-          logFilter={logFilter}
-          onChangeLogFilter={setLogFilter}
-          logs={office.logs}
-          filteredLogs={filteredLogs}
-          onPreviewHtml={setPreviewHtmlCode}
-          logEndRef={logEndRef}
-        />
+        {/* Smooth GPU slide-over drawer untuk panel Perintah Director */}
+        <aside
+          aria-hidden={!isWorkPanelOpen}
+          className={`absolute top-0 right-0 bottom-0 z-30 w-full sm:w-[440px] lg:w-[42%] max-w-[560px] flex flex-col bg-slate-950/95 backdrop-blur-md border-l border-slate-800 shadow-2xl will-change-transform transition-[transform,opacity,visibility] duration-300 ease-out ${
+            isWorkPanelOpen
+              ? 'translate-x-0 opacity-100 visible pointer-events-auto'
+              : 'translate-x-full opacity-0 invisible pointer-events-none'
+          }`}
+        >
+          <WorkPanel
+            sessions={office.sessions}
+            activeSession={office.activeSession}
+            onSelectSession={(id) => {
+              office.setActiveSessionId(id);
+              setLogFilter('all');
+            }}
+            onNewSession={handleNewSession}
+            onDeleteSession={handleDeleteSession}
+            promptInput={promptInput}
+            onChangePromptInput={setPromptInput}
+            fileInputRef={fileInputRef}
+            selectedFile={selectedFile}
+            isReadingFile={isReadingFile}
+            onFileChange={handleFileChange}
+            onClearFile={clearFile}
+            workflowMode={office.workflowMode}
+            onChangeWorkflowMode={office.setWorkflowMode}
+            grillingEnabled={office.grillingEnabled}
+            onToggleGrilling={() => office.setGrillingEnabled((v) => !v)}
+            pendingGrilling={relay.pendingGrilling}
+            onOpenGrillingModal={() => setGrillingMinimized(false)}
+            agents={office.agents}
+            isRelayRunning={relay.isRelayRunning}
+            onStartRelay={relay.startAutoRelay}
+            onStopRelay={relay.stopActiveRun}
+            logFilter={logFilter}
+            onChangeLogFilter={setLogFilter}
+            logs={office.logs}
+            filteredLogs={filteredLogs}
+            onPreviewHtml={setPreviewHtmlCode}
+            onClosePanel={() => {
+              setIsWorkPanelOpen(false);
+              playRetroTone('click', fxEnabled);
+            }}
+            logEndRef={logEndRef}
+          />
+        </aside>
       </div>
 
       <HtmlPreviewModal htmlCode={previewHtmlCode} onClose={() => setPreviewHtmlCode(null)} />

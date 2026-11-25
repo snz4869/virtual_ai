@@ -4,6 +4,8 @@ import {
   WORLD_H,
   OFFICE_ROOMS,
   OFFICE_COLLIDERS,
+  DIRECTOR_SEAT_ZONE,
+  MEETING_SEATS,
   WAYPOINTS,
   AMBIENT_STAFF,
   AMBIENT_ACTIVITIES,
@@ -347,8 +349,8 @@ function createOfficeBackgroundBuffer() {
   ctx.lineWidth = 14;
   ctx.strokeRect(7, 7, WORLD_W - 14, WORLD_H - 14);
 
-  // Efek cahaya matahari lembut masuk dari jendela atas
-  [390, 500, 610, 780, 880].forEach((wx) => {
+  // Efek cahaya matahari lembut masuk dari jendela atas (sepanjang kantor widescreen)
+  [390, 500, 610, 780, 880, 1080, 1210, 1340, 1540, 1690].forEach((wx) => {
     drawPixelBox(ctx, wx, 6, 76, 18, '#bae6fd', '#2c221e', 2);
     ctx.fillStyle = '#e0f2fe';
     ctx.fillRect(wx + 6, 9, 28, 10);
@@ -585,6 +587,166 @@ function createOfficeBackgroundBuffer() {
   ctx.fillStyle = '#ef4444';
   ctx.fillRect(206, 1145, 3, 3);
 
+  // =========================================================================
+  // === EAST WING: AI & SERVER LAB, OFFICE CAFE, DESIGN STUDIO, TOWNHALL ===
+  // =========================================================================
+
+  // 1. AI & SERVER LAB (x: 1020..1456, y: 24..440)
+  drawRug(ctx, 1044, 150, 384, 240, '#d2e0ee', '#9db5ce', 'rgba(56,189,248,0.28)');
+  // Deretan 4 Server Rack besar di sisi utara
+  [1055, 1110, 1165, 1220].forEach((sx) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.fillRect(sx + 3, 54, 48, 52);
+    drawPixelBox(ctx, sx, 50, 48, 52, '#1e293b', '#0f172a', 2);
+    [57, 69, 81, 93].forEach((ry, idx) => {
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(sx + 5, ry, 38, 7);
+      ctx.fillStyle = idx % 2 === 0 ? '#38bdf8' : '#34d399';
+      ctx.fillRect(sx + 8, ry + 2, 4, 3);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(sx + 15, ry + 2, 3, 3);
+    });
+  });
+  // Layar Wall Telemetry Monitor di kanan atas Server Lab
+  drawPixelBox(ctx, 1320, 50, 108, 52, '#0f172a', '#334155', 2);
+  ctx.fillStyle = '#0284c7';
+  ctx.fillRect(1326, 56, 96, 40);
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillRect(1332, 62, 36, 4);
+  ctx.fillStyle = '#4ade80';
+  ctx.fillRect(1332, 74, 12, 16);
+  ctx.fillRect(1348, 68, 12, 22);
+  ctx.fillRect(1364, 72, 12, 18);
+  ctx.fillRect(1380, 64, 12, 26);
+  ctx.fillStyle = '#facc15';
+  ctx.fillRect(1398, 70, 18, 10);
+  // 2 Workstation AI/Cloud Engineer
+  drawWorkstation(ctx, 1070, 270, '#38bdf8', 'down');
+  drawWorkstation(ctx, 1280, 270, '#2dd4bf', 'down');
+
+  // 2. OFFICE CAFE & BAR (x: 1476..1856, y: 24..540)
+  drawRug(ctx, 1500, 170, 326, 330, '#ead9bc', '#c4ab84', 'rgba(255,255,255,0.4)');
+  drawWallClock(ctx, 1830, 54);
+  // Bar Counter Espresso panjang + mesin kopi + pastry display
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
+  ctx.fillRect(1514, 56, 310, 58);
+  drawPixelBox(ctx, 1510, 52, 310, 58, '#8d5b3c', '#2c221e', 2.5);
+  ctx.fillStyle = '#b07b55';
+  ctx.fillRect(1515, 57, 300, 48);
+  // Mesin Espresso ganda
+  drawPixelBox(ctx, 1534, 62, 46, 32, '#334155', '#0f172a', 2);
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillRect(1540, 68, 34, 12);
+  ctx.fillStyle = '#ef4444';
+  ctx.fillRect(1570, 65, 4, 4);
+  // Etalase kue / croissant kaca
+  drawPixelBox(ctx, 1606, 62, 74, 34, '#e0f2fe', '#0369a1', 1.8);
+  ctx.fillStyle = '#f59e0b';
+  ctx.fillRect(1614, 74, 14, 10);
+  ctx.fillRect(1634, 72, 16, 12);
+  ctx.fillStyle = '#fb7185';
+  ctx.fillRect(1656, 74, 14, 10);
+  // Cangkir tersusun & kasir
+  drawPixelBox(ctx, 1712, 66, 38, 26, '#1e293b', '#0f172a', 1.5);
+  ctx.fillStyle = '#34d399';
+  ctx.fillRect(1716, 70, 30, 12);
+  [1768, 1784, 1800].forEach((mx) => {
+    drawPixelBox(ctx, mx, 72, 10, 10, '#fef9c3', '#713f12', 1.2);
+  });
+  // Bar stools di depan counter
+  [1545, 1605, 1665, 1725, 1785].forEach((bx) => {
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.arc(bx, 124, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+  });
+  // 3 Meja bundar cafe + kursi + kopi
+  [
+    { x: 1564, y: 284 },
+    { x: 1749, y: 284 },
+    { x: 1656, y: 424 },
+  ].forEach((tb) => {
+    // Kursi kiri & kanan
+    drawPixelBox(ctx, tb.x - 42, tb.y - 10, 14, 20, '#d97706', '#78350f', 1.5);
+    drawPixelBox(ctx, tb.x + 28, tb.y - 10, 14, 20, '#d97706', '#78350f', 1.5);
+    // Bayangan & meja kayu bundar
+    ctx.fillStyle = 'rgba(0,0,0,0.14)';
+    ctx.beginPath();
+    ctx.arc(tb.x + 3, tb.y + 4, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#b87a4b';
+    ctx.beginPath();
+    ctx.arc(tb.x, tb.y, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2c221e';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#d49a6a';
+    ctx.beginPath();
+    ctx.arc(tb.x, tb.y, 20, 0, Math.PI * 2);
+    ctx.fill();
+    // 2 cangkir kopi di atas meja
+    drawPixelBox(ctx, tb.x - 11, tb.y - 7, 8, 8, '#f8fafc', '#475569', 1.2);
+    drawPixelBox(ctx, tb.x + 4, tb.y + 1, 8, 8, '#fef9c3', '#713f12', 1.2);
+  });
+
+  // 3. DESIGN & CREATIVE STUDIO (x: 1020..1456, y: 460..820)
+  drawRug(ctx, 1044, 595, 384, 196, '#f2e1cc', '#d4b897', 'rgba(244,114,182,0.3)');
+  drawWorkstation(ctx, 1065, 520, '#f472b6', 'down');
+  drawWorkstation(ctx, 1295, 520, '#a78bfa', 'down');
+  // Meja kolaborasi desain + swatch palet + sketsa UI
+  ctx.fillStyle = 'rgba(0,0,0,0.14)';
+  ctx.fillRect(1154, 694, 168, 64);
+  drawPixelBox(ctx, 1150, 690, 168, 64, '#e2e8f0', '#334155', 2);
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(1156, 696, 156, 52);
+  // Lembar wireframe & color swatches
+  drawPixelBox(ctx, 1166, 704, 52, 36, '#ffffff', '#64748b', 1.5);
+  ctx.fillStyle = '#6366f1';
+  ctx.fillRect(1172, 710, 40, 8);
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillRect(1172, 722, 18, 12);
+  ctx.fillRect(1194, 722, 18, 12);
+  ['#f43f5e', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6'].forEach((sw, i) => {
+    drawPixelBox(ctx, 1232 + i * 15, 710, 12, 24, sw, '#1e293b', 1.2);
+  });
+
+  // 4. TOWNHALL & DEMO STAGE (x: 1020..1856, y: 840..1196)
+  drawRug(ctx, 1060, 896, 590, 260, '#d5dcf0', '#9da9cb', 'rgba(99,102,241,0.3)');
+  // Panggung kayu kanan + layar proyektor raksasa + podium
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(1694, 910, 130, 220);
+  drawPixelBox(ctx, 1690, 905, 130, 220, '#9a653f', '#2c221e', 2.5);
+  ctx.fillStyle = '#b87f54';
+  ctx.fillRect(1696, 911, 118, 208);
+  // Layar Presentasi Besar di belakang panggung
+  drawPixelBox(ctx, 1784, 932, 24, 166, '#0f172a', '#334155', 2);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(1788, 938, 16, 154);
+  // Podium pembicara
+  drawPixelBox(ctx, 1712, 996, 26, 38, '#334155', '#0f172a', 2);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(1716, 1004, 18, 22);
+  // 3 Blok kursi penonton Townhall
+  [
+    { x: 1110, y: 940 },
+    { x: 1110, y: 1045 },
+    { x: 1365, y: 1045 },
+  ].forEach((row) => {
+    for (let c = 0; c < 4; c++) {
+      const cx = row.x + c * 48;
+      drawPixelBox(ctx, cx, row.y, 40, 22, '#4f46e5', '#1e1b4b', 1.8);
+      ctx.fillStyle = '#818cf8';
+      ctx.fillRect(cx + 4, row.y + 4, 32, 13);
+      drawPixelBox(ctx, cx, row.y + 28, 40, 22, '#4f46e5', '#1e1b4b', 1.8);
+      ctx.fillStyle = '#818cf8';
+      ctx.fillRect(cx + 4, row.y + 32, 32, 13);
+    }
+  });
+
   [
     [54, 65],
     [365, 65],
@@ -597,6 +759,15 @@ function createOfficeBackgroundBuffer() {
     [665, 1145],
     [46, 876],
     [206, 1072],
+    // Tanaman East Wing
+    [1040, 412],
+    [1432, 412],
+    [1498, 514],
+    [1832, 514],
+    [1044, 792],
+    [1432, 792],
+    [1052, 1166],
+    [1648, 1166],
   ].forEach(([px, py]) => drawPixelPlant(ctx, px, py));
 
   OFFICE_ROOMS.forEach((room) => {
@@ -849,12 +1020,16 @@ export default function OfficeCanvas2D({
   selectedNpcId = null,
   onSelectNpc,
   onClearInspector,
+  onDirectorSit = null,
+  onDirectorStand = null,
 }) {
   const canvasRef = useRef(null);
   const bgBufferRef = useRef(null);
   const keysRef = useRef({});
   const fxEnabledRef = useRef(fxEnabled);
   const showAmbientRef = useRef(showAmbientStaff);
+  const onDirectorSitRef = useRef(onDirectorSit);
+  const onDirectorStandRef = useRef(onDirectorStand);
   const ambientRef = useRef(null);
   if (!ambientRef.current) {
     ambientRef.current = createAmbientEntities();
@@ -871,6 +1046,11 @@ export default function OfficeCanvas2D({
   useEffect(() => {
     showAmbientRef.current = showAmbientStaff;
   }, [showAmbientStaff]);
+
+  useEffect(() => {
+    onDirectorSitRef.current = onDirectorSit;
+    onDirectorStandRef.current = onDirectorStand;
+  }, [onDirectorSit, onDirectorStand]);
 
   useEffect(() => {
     const prevZoom = camRef.current.zoom || 1;
@@ -903,14 +1083,19 @@ export default function OfficeCanvas2D({
         unlockAudio();
         keysRef.current[key] = true;
         if (directorRef?.current) {
+          const wasSitting = Boolean(directorRef.current.isSitting);
           directorRef.current.pathQueue = [];
           directorRef.current.onArriveCallback = null;
           directorRef.current.isSitting = false;
+          if (wasSitting) {
+            onDirectorStandRef.current?.();
+          }
         }
       }
 
       if (e.code === 'Space' || key === 'e') {
         e.preventDefault();
+        unlockAudio();
         const dir = directorRef?.current;
         const aiNpcs = npcRef?.current || [];
         const ambNpcs = showAmbientRef.current ? ambientRef.current || [] : [];
@@ -926,6 +1111,22 @@ export default function OfficeCanvas2D({
             nearest = npc;
           }
         });
+
+        // Jika dekat kursi Director (dan tidak sedang berhadap-hadapan persis dengan NPC), duduk & buka Perintah Director
+        const seat = MEETING_SEATS.director;
+        const distToSeat = Math.hypot(dir.x - seat.x, dir.y - seat.y);
+        if (distToSeat <= 72 && (!nearest || minDist > 48)) {
+          dir.x = seat.x;
+          dir.y = seat.y;
+          dir.facing = seat.facing;
+          dir.pathQueue = [];
+          dir.onArriveCallback = null;
+          dir.isMoving = false;
+          dir.isSitting = true;
+          playRetroTone('approve', fxEnabledRef.current);
+          onDirectorSitRef.current?.();
+          return;
+        }
 
         dir.actionTimer = 0.28;
         dir.actionTarget = nearest ? { x: nearest.x, y: nearest.y } : null;
@@ -1008,6 +1209,12 @@ export default function OfficeCanvas2D({
       return null;
     };
 
+    const isPointInDirectorSeat = (wx, wy) =>
+      wx >= DIRECTOR_SEAT_ZONE.x &&
+      wx <= DIRECTOR_SEAT_ZONE.x + DIRECTOR_SEAT_ZONE.w &&
+      wy >= DIRECTOR_SEAT_ZONE.y &&
+      wy <= DIRECTOR_SEAT_ZONE.y + DIRECTOR_SEAT_ZONE.h;
+
     const onMouseDown = (e) => {
       if (camRef.current.zoom <= 1) return;
       dragRef.current = {
@@ -1043,7 +1250,7 @@ export default function OfficeCanvas2D({
       }
 
       const pt = toWorld(e.clientX, e.clientY);
-      const hit = hitTestNpc(pt.x, pt.y) || hitTestAmbient(pt.x, pt.y);
+      const hit = hitTestNpc(pt.x, pt.y) || hitTestAmbient(pt.x, pt.y) || isPointInDirectorSeat(pt.x, pt.y);
       canvas.style.cursor = hit ? 'pointer' : camRef.current.zoom > 1 ? 'grab' : 'crosshair';
     };
 
@@ -1088,15 +1295,53 @@ export default function OfficeCanvas2D({
         return;
       }
 
+      // Klik kursi atau laptop Director -> Director berjalan duduk & buka panel Perintah Director
+      if (isPointInDirectorSeat(pt.x, pt.y)) {
+        onClearInspector?.();
+        const dir = directorRef?.current;
+        const seat = MEETING_SEATS.director;
+        if (dir) {
+          if (Math.hypot(dir.x - seat.x, dir.y - seat.y) <= 12) {
+            dir.x = seat.x;
+            dir.y = seat.y;
+            dir.facing = seat.facing;
+            dir.pathQueue = [];
+            dir.onArriveCallback = null;
+            dir.isMoving = false;
+            dir.isSitting = true;
+            playRetroTone('approve', fxEnabledRef.current);
+            onDirectorSitRef.current?.();
+          } else {
+            dir.isSitting = false;
+            dir.targetMarker = { x: seat.x, y: seat.y, ttl: 0.9 };
+            dir.pathQueue = buildOfficePath(dir.x, dir.y, seat);
+            dir.onArriveCallback = () => {
+              dir.x = seat.x;
+              dir.y = seat.y;
+              dir.facing = seat.facing;
+              dir.isSitting = true;
+              playRetroTone('approve', fxEnabledRef.current);
+              onDirectorSitRef.current?.();
+            };
+            playRetroTone('click', fxEnabledRef.current);
+          }
+        }
+        return;
+      }
+
       onClearInspector?.();
       const clampedX = Math.max(45, Math.min(WORLD_W - 45, pt.x));
       const clampedY = Math.max(45, Math.min(WORLD_H - 45, pt.y));
       const dir = directorRef?.current;
       if (dir) {
+        const wasSitting = Boolean(dir.isSitting);
         dir.isSitting = false;
         dir.onArriveCallback = null;
         dir.targetMarker = { x: clampedX, y: clampedY, ttl: 1.0 };
         dir.pathQueue = buildOfficePath(dir.x, dir.y, { x: clampedX, y: clampedY });
+        if (wasSitting) {
+          onDirectorStandRef.current?.();
+        }
         playRetroTone('click', fxEnabledRef.current);
       }
     };
@@ -1393,11 +1638,12 @@ export default function OfficeCanvas2D({
 
       ctx.drawImage(bgBufferRef.current, 0, 0);
 
-      // Animasi detail hidup kantor: uap kopi, LED server Kael, dan cahaya TV Recreation
+      // Animasi detail hidup kantor: uap kopi, LED server, dan cahaya TV/Stage
       ctx.save();
       [
         { x: 127, y: 410 }, // Mesin kopi Pantry
         { x: 201, y: 1138 }, // Mesin kopi Full-Stack Lab
+        { x: 1556, y: 60 }, // Mesin espresso Office Cafe
       ].forEach((steam, idx) => {
         const phase = (timeSec * 1.4 + idx * 0.7) % 1;
         ctx.fillStyle = `rgba(255, 255, 255, ${(1 - phase) * 0.55})`;
@@ -1406,17 +1652,26 @@ export default function OfficeCanvas2D({
         ctx.fill();
       });
 
-      // LED berkedip di mini server rack Kael
+      // LED berkedip di mini server rack Kael & AI Server Lab
       [1136, 1148, 1160, 1172].forEach((ly, idx) => {
         const blink = Math.floor(timeSec * (2.5 + idx * 0.8) + idx) % 2 === 0;
         ctx.fillStyle = blink ? (idx % 2 === 0 ? '#38bdf8' : '#4ade80') : '#1e293b';
         ctx.fillRect(166, ly, 4, 3);
       });
+      [1055, 1110, 1165, 1220].forEach((sx, rIdx) => {
+        [59, 71, 83, 95].forEach((ry, idx) => {
+          const blink = Math.floor(timeSec * (2 + rIdx * 0.6 + idx * 0.4) + rIdx + idx) % 2 === 0;
+          ctx.fillStyle = blink ? (idx % 2 === 0 ? '#38bdf8' : '#4ade80') : '#0f172a';
+          ctx.fillRect(sx + 34, ry, 5, 3);
+        });
+      });
 
-      // Animasi sinyal lembut di TV Recreation Area
+      // Animasi sinyal lembut di TV Recreation Area & layar Townhall
       const tvPulse = 0.12 + 0.08 * Math.sin(timeSec * 3.2);
       ctx.fillStyle = `rgba(56, 189, 248, ${tvPulse})`;
       ctx.fillRect(492, 795, 90, 15);
+      ctx.fillStyle = `rgba(125, 211, 252, ${tvPulse * 1.1})`;
+      ctx.fillRect(1788, 938, 16, 154);
       ctx.restore();
 
       // Render animasi layar monitor menyala untuk AI Agent WORKING & staf ambient SITTING_DESK
@@ -1434,6 +1689,37 @@ export default function OfficeCanvas2D({
       });
 
       const dir = directorRef?.current;
+
+      // Indikator interaktif pada kursi Director saat Director belum duduk
+      if (dir && !dir.isSitting) {
+        const seat = MEETING_SEATS.director;
+        const distToSeat = Math.hypot(dir.x - seat.x, dir.y - seat.y);
+        const pulse = 0.55 + 0.45 * Math.sin(timeSec * 4.2);
+        const isNearSeat = distToSeat <= 72;
+
+        ctx.save();
+        ctx.strokeStyle = isNearSeat ? '#f472b6' : '#818cf8';
+        ctx.lineWidth = isNearSeat ? 2.5 : 2;
+        ctx.globalAlpha = 0.45 + 0.4 * pulse;
+        ctx.beginPath();
+        ctx.roundRect(78, 166, 26, 30, 6);
+        ctx.stroke();
+
+        const hintText = isNearSeat ? '[E] / Klik Duduk' : '🪑 Meja Director';
+        ctx.globalAlpha = 0.95;
+        ctx.font = 'bold 10px "Inter", system-ui, sans-serif';
+        const hw = ctx.measureText(hintText).width + 14;
+        const hy = 144 + Math.sin(timeSec * 3.5) * 2;
+        ctx.fillStyle = isNearSeat ? 'rgba(236, 72, 153, 0.92)' : 'rgba(15, 23, 42, 0.85)';
+        ctx.beginPath();
+        ctx.roundRect(seat.x - hw / 2 + 8, hy, hw, 18, 7);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText(hintText, seat.x + 8, hy + 12.5);
+        ctx.restore();
+      }
+
       if (dir?.targetMarker && dir.targetMarker.ttl > 0) {
         ctx.save();
         ctx.strokeStyle = '#ec4899';
@@ -1503,8 +1789,8 @@ export default function OfficeCanvas2D({
         ref={canvasRef}
         width={WORLD_W}
         height={WORLD_H}
-        className="rounded-xl shadow-2xl border-2 border-slate-700 max-w-full max-h-full aspect-[1000/1220] touch-manipulation"
-        style={{ imageRendering: 'pixelated' }}
+        className="rounded-xl shadow-2xl border-2 border-slate-700 max-w-full max-h-full touch-manipulation"
+        style={{ imageRendering: 'pixelated', aspectRatio: `${WORLD_W} / ${WORLD_H}` }}
       />
     </div>
   );

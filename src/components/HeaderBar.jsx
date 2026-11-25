@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, FileText, Music, RotateCcw, Users, Volume2, VolumeX } from 'lucide-react';
+import { Download, FileText, Music, PanelRightClose, PanelRightOpen, RotateCcw, Users, Volume2, VolumeX } from 'lucide-react';
 import { OFFICE_ROOMS } from '../constants/officeConfig';
 import { OFFICE_BGM_TRACKS } from '../utils/audio';
 
@@ -11,6 +11,8 @@ export default function HeaderBar({
   onToggleFx,
   bgmTrack,
   onChangeBgmTrack,
+  isWorkPanelOpen,
+  onToggleWorkPanel,
   apiMode,
   aiProvider,
   agyAvailable,
@@ -123,6 +125,22 @@ export default function HeaderBar({
       </div>
 
       <div className="flex items-center gap-2">
+        <button
+          onClick={onToggleWorkPanel}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-colors ${
+            isWorkPanelOpen
+              ? 'bg-pink-600/20 hover:bg-pink-600/30 text-pink-200 border-pink-500/50'
+              : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400/50 shadow-lg shadow-indigo-950/50'
+          }`}
+          title="Shortcut duduk di meja Director & buka/tutup panel Perintah Director"
+        >
+          {isWorkPanelOpen ? (
+            <PanelRightClose className="w-3.5 h-3.5" />
+          ) : (
+            <PanelRightOpen className="w-3.5 h-3.5" />
+          )}
+          <span>{isWorkPanelOpen ? 'Tutup Perintah' : 'Perintah Director'}</span>
+        </button>
         <button
           onClick={onOpenSettings}
           className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium border border-slate-700 flex items-center gap-1.5"

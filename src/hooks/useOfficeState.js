@@ -3,7 +3,7 @@ import {
   DEFAULT_AGENTS,
   DEFAULT_BRIEF,
   EXTRA_AGENT_SLOTS,
-  MEETING_SEATS,
+  WAYPOINTS,
 } from '../constants/officeConfig';
 
 const STORAGE_KEY = 'virtual_office_ai_v2_1';
@@ -86,10 +86,10 @@ export function useOfficeState() {
     accentHex: '#ec4899',
     hairColor: '#f8fafc',
     skinColor: '#fde68a',
-    x: MEETING_SEATS.director.x,
-    y: MEETING_SEATS.director.y,
-    facing: MEETING_SEATS.director.facing,
-    isSitting: true,
+    x: WAYPOINTS.directorStand.x,
+    y: WAYPOINTS.directorStand.y,
+    facing: 'up',
+    isSitting: false,
     walkPhase: 0,
     isMoving: false,
     pathQueue: [],
