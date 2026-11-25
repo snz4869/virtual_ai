@@ -97,23 +97,45 @@ ${projectBrief}`;
     return `${dsData.choices[0].message.content}\n\n_(Model: deepseek-chat)_`;
   }
 
-  // PERBAIKAN: Ganti model ke gemini-3.5-flash-lite (model 2.5 sudah tidak tersedia untuk proyek baru)
-  const gRes = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${encodeURIComponent(apiKey.trim())}`,
-    {
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
+  const gRes = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+    }),
+  });
+
+  const gData = await gRes.json();
+  if (!gRes.ok) throw new Error(gData?.error?.message || `Gemini Error ${gRes.status}`);
+
+  const candidate = gData?.candidates?.[0];
+  let finalText = candidate?.content?.parts?.[0]?.text || '';
+
+  if (finalText && candidate?.finishReason === 'MAX_TOKENS') {
+    const contRes = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt || '' }] },
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          maxOutputTokens: 8192,
-          temperature: 0.4,
-        },
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [
+          { role: 'user', parts: [{ text: userPrompt }] },
+          { role: 'model', parts: [{ text: finalText }] },
+          {
+            role: 'user',
+            parts: [{ text: 'Lanjutkan persis dari karakter terakhir yang terpotong hingga selesai tanpa mengulang.' }],
+          },
+        ],
+        generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
       }),
+    });
+    if (contRes.ok) {
+      const contData = await contRes.json();
+      finalText += contData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     }
-  );
-  const gData = await gRes.json();
-  if (!gRes.ok) throw new Error(gData?.error?.message || `Gemini Error ${gRes.status}`);
-  return `${gData.candidates[0].content.parts[0].text}\n\n_(Model: gemini-3.5-flash-lite)_`;
+  }
+
+  return `${finalText}\n\n_(Model: gemini-2.5-flash)_`;
 }
