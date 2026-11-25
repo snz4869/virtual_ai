@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { CORE_AGENT_IDS, WAYPOINTS } from '../constants/officeConfig';
+import { CORE_AGENT_IDS, MEETING_SEATS, WAYPOINTS } from '../constants/officeConfig';
 import { buildOfficePath } from '../utils/pathfinding';
 import { abortableSleep, executeAgentPrompt } from '../utils/geminiClient';
 import { playRetroTone } from '../utils/audio';
@@ -9,6 +9,7 @@ function isAbortErr(err) {
 }
 
 export function useOfficeRelay({
+  directorRef,
   npcRef,
   fxEventsRef,
   agents,
@@ -76,6 +77,13 @@ export function useOfficeRelay({
 
       signal?.addEventListener('abort', onAbort, { once: true });
 
+      // Batalkan walk sebelumnya (mis. balik ke lounge) secara bersih sebelum berangkat ke tujuan baru
+      if (npc.onArriveCallback) {
+        const prevCb = npc.onArriveCallback;
+        npc.onArriveCallback = null;
+        prevCb();
+      }
+
       npc.roamTarget = null;
       npc.roamPath = [];
       npc.pendingIdleBubble = '';
@@ -94,6 +102,92 @@ export function useOfficeRelay({
         resolve();
       };
     });
+  };
+
+  const moveDirectorToMeetingSeat = (signal = null) => {
+    return new Promise((resolve, reject) => {
+      const dir = directorRef?.current;
+      if (!dir) return resolve();
+
+      const seat = MEETING_SEATS.director;
+      if (Math.hypot(dir.x - seat.x, dir.y - seat.y) <= 8) {
+        dir.x = seat.x;
+        dir.y = seat.y;
+        dir.pathQueue = [];
+        dir.isMoving = false;
+        dir.facing = seat.facing;
+        dir.isSitting = true;
+        return resolve();
+      }
+
+      if (signal?.aborted) {
+        const err = new Error('ABORTED');
+        err.name = 'AbortError';
+        return reject(err);
+      }
+
+      const onAbort = () => {
+        dir.pathQueue = [];
+        dir.onArriveCallback = null;
+        dir.isMoving = false;
+        const err = new Error('ABORTED');
+        err.name = 'AbortError';
+        reject(err);
+      };
+
+      signal?.addEventListener('abort', onAbort, { once: true });
+      dir.isSitting = false;
+      dir.pathQueue = buildOfficePath(dir.x, dir.y, seat);
+      dir.onArriveCallback = () => {
+        signal?.removeEventListener('abort', onAbort);
+        dir.x = seat.x;
+        dir.y = seat.y;
+        dir.facing = seat.facing;
+        dir.isSitting = true;
+        resolve();
+      };
+    });
+  };
+
+  const getAgentMeetingSeat = (agentId, extraIndex = 0) => {
+    if (agentId === 'alex') return MEETING_SEATS.alex;
+    if (agentId === 'raka') return MEETING_SEATS.raka;
+    if (agentId === 'nadia') return MEETING_SEATS.nadia;
+    return MEETING_SEATS.extra[extraIndex % MEETING_SEATS.extra.length];
+  };
+
+  // Kumpulkan Director + seluruh AI Agent ke meja rapat Ruang Director saat command selesai
+  const gatherAllAtDirectorMeeting = async ({ leadReporterId, isApproved = true, signal }) => {
+    let extraIdx = 0;
+    const moves = [moveDirectorToMeetingSeat(signal)];
+
+    for (const ag of agents) {
+      const isCore = CORE_AGENT_IDS.includes(ag.id);
+      const seat = getAgentMeetingSeat(ag.id, isCore ? 0 : extraIdx++);
+      const isLeadReporter = ag.id === leadReporterId;
+
+      moves.push(
+        moveNpcTo(
+          ag.id,
+          { x: seat.x, y: seat.y },
+          {
+            carryingDoc: isLeadReporter,
+            bubble: isLeadReporter
+              ? isApproved
+                ? '✅ Lapor ke Rapat...'
+                : '⚠️ Lapor Revisi...'
+              : '🪑 Ke Ruang Rapat...',
+            endState: isLeadReporter ? 'REPORTING' : 'MEETING',
+            endBubble: '',
+            showExclamation: isLeadReporter,
+            endFacing: seat.facing,
+          },
+          signal
+        )
+      );
+    }
+
+    await Promise.all(moves);
   };
 
   const runStreamingAgentCall = async ({
@@ -236,21 +330,15 @@ export function useOfficeRelay({
         signal: controller.signal,
       });
 
+      setPipelineStatus(`Selesai • Seluruh tim AI berkumpul di Ruang Director...`);
       playRetroTone('report', fxEnabled);
-      await moveNpcTo(
-        agent.id,
-        WAYPOINTS.director_report,
-        {
-          carryingDoc: true,
-          bubble: '📋 Melapor...',
-          endState: 'REPORTING',
-          showExclamation: true,
-          endFacing: 'left',
-        },
-        controller.signal
-      );
-      emitFx('confetti', WAYPOINTS.director_report.x, WAYPOINTS.director_report.y);
-      setPipelineStatus(`Selesai • ${agent.name} melapor di Director Office.`);
+      await gatherAllAtDirectorMeeting({
+        leadReporterId: agent.id,
+        isApproved: true,
+        signal: controller.signal,
+      });
+      emitFx('confetti', 170, 178);
+      setPipelineStatus(`Selesai • Semua agen AI berkumpul & melapor di Ruang Director.`);
     } catch (err) {
       if (isAbortErr(err)) {
         setPipelineStatus('Tugas dihentikan oleh Director.');
@@ -573,12 +661,6 @@ export function useOfficeRelay({
         }
       }
 
-      const rakaBack = moveNpcTo(raka.id, raka.homeSpot || WAYPOINTS.lounge_raka, {
-        bubble: '☕ Ke Lounge',
-        endState: 'IDLE',
-        endBubble: '',
-      }).catch(() => {});
-
       if (!isApproved) {
         appendLogToSession(runSessionId, {
           agentId: nadia.id,
@@ -592,28 +674,21 @@ export function useOfficeRelay({
 
       setPipelineStatus(
         isApproved
-          ? `Selesai (QA Approved): ${nadia.name} melapor ke Director Office!`
-          : `Selesai (Batas Revisi): ${nadia.name} melapor ke Director Office!`
+          ? 'Selesai (QA Approved): Seluruh tim AI berkumpul di Ruang Director!'
+          : 'Selesai (Batas Revisi): Seluruh tim AI berkumpul di Ruang Director!'
       );
       playRetroTone('report', fxEnabled);
-      await moveNpcTo(
-        nadia.id,
-        WAYPOINTS.director_report,
-        {
-          carryingDoc: true,
-          bubble: isApproved ? '✅ QA Approved! Lapor...' : '⚠️ Lapor Batas Revisi...',
-          endState: 'REPORTING',
-          showExclamation: true,
-          endFacing: 'left',
-        },
-        controller.signal
-      );
+      await gatherAllAtDirectorMeeting({
+        leadReporterId: nadia.id,
+        isApproved,
+        signal: controller.signal,
+      });
 
       if (isApproved) {
-        emitFx('confetti', WAYPOINTS.director_report.x, WAYPOINTS.director_report.y);
+        emitFx('confetti', 170, 178);
       }
 
-      await Promise.all([alexBack, rakaBack, ...specialistBacks]);
+      await Promise.all([alexBack, ...specialistBacks]);
 
       if (isApproved) {
         setPipelineStatus(

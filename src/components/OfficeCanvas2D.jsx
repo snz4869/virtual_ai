@@ -5,9 +5,47 @@ import {
   OFFICE_ROOMS,
   OFFICE_COLLIDERS,
   WAYPOINTS,
+  AMBIENT_STAFF,
+  AMBIENT_ACTIVITIES,
 } from '../constants/officeConfig';
 import { buildOfficePath } from '../utils/pathfinding';
 import { playRetroTone } from '../utils/audio';
+
+const AMBIENT_GREETINGS = [
+  'Halo Bos! 👋',
+  'Lagi fokus nih 💻',
+  'Aman terkendali! 👍',
+  'Semangat kerja! ☕',
+  'Bentar lagi beres ✨',
+  'Kopi dulu Bos? ☕',
+];
+
+function createAmbientEntities() {
+  return AMBIENT_STAFF.map((staff, idx) => {
+    const startAtActivity = staff.initialMode === 'ACTIVITY';
+    const act = AMBIENT_ACTIVITIES[idx % AMBIENT_ACTIVITIES.length];
+    const startPos = startAtActivity ? act.spot : staff.deskSpot;
+
+    return {
+      ...staff,
+      isAmbient: true,
+      x: startPos.x,
+      y: startPos.y,
+      facing: startAtActivity ? act.facing : staff.deskFacing,
+      state: startAtActivity ? 'ACTIVITY' : 'SITTING_DESK',
+      statusBubble: startAtActivity ? act.bubble : '',
+      bubbleClearTimer: startAtActivity ? 3 + (idx % 3) : 0,
+      stateTimer: startAtActivity ? 7 + Math.random() * 6 : 12 + Math.random() * 14,
+      workBubbleTimer: 5 + Math.random() * 9,
+      pathQueue: [],
+      pendingState: null,
+      pendingFacing: 'down',
+      pendingBubble: '',
+      walkPhase: Math.random() * 6,
+      hitTimer: 0,
+    };
+  });
+}
 
 // Cek apakah area kaki karakter (hitbox 18x12 di sekitar kaki) menabrak objek
 function isPositionBlocked(x, y) {
@@ -298,17 +336,22 @@ function drawCarriedDocument(ctx, px, py, facing, timeSec) {
 function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected = false) {
   if (!entity || typeof entity.x !== 'number' || typeof entity.y !== 'number') return;
 
+  const isAmbient = Boolean(entity.isAmbient);
   const isWalking = isDirector
     ? Boolean(entity.isMoving)
     : entity.state === 'WALKING' ||
       (entity.state === 'IDLE' && Array.isArray(entity.roamPath) && entity.roamPath.length > 0);
-  const isWorking = !isDirector && entity.state === 'WORKING';
+  const isTypingAtDesk = !isDirector && (entity.state === 'WORKING' || entity.state === 'SITTING_DESK');
+  const isSitting = isDirector
+    ? Boolean(entity.isSitting) && !isWalking
+    : isTypingAtDesk || entity.state === 'MEETING' || entity.state === 'REPORTING';
   const facing = entity.facing || 'down';
 
   const bob = isWalking ? Math.abs(Math.sin(entity.walkPhase || 0)) * -4 : 0;
+  const sitDrop = isSitting ? 3 : 0;
   const shakeX = entity.hitTimer > 0 ? Math.sin(timeSec * 65) * 4 : 0;
   const px = Math.round(entity.x + shakeX);
-  const py = Math.round(entity.y + bob);
+  const py = Math.round(entity.y + bob + sitDrop);
 
   if (isDirector || isSelected) {
     ctx.beginPath();
@@ -326,8 +369,9 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   ctx.fill();
 
   const legOffset = isWalking ? Math.sin(entity.walkPhase || 0) * 3 : 0;
-  drawPixelBox(ctx, px - 7, py + 6 + legOffset, 6, 9, '#1e293b', '#0f172a', 1.5);
-  drawPixelBox(ctx, px + 1, py + 6 - legOffset, 6, 9, '#1e293b', '#0f172a', 1.5);
+  const legHeight = isSitting ? 5 : 9;
+  drawPixelBox(ctx, px - 7, py + 6 + legOffset, 6, legHeight, '#1e293b', '#0f172a', 1.5);
+  drawPixelBox(ctx, px + 1, py + 6 - legOffset, 6, legHeight, '#1e293b', '#0f172a', 1.5);
 
   const shirt = entity.shirtColor || entity.accentHex || '#3b82f6';
   const skin = entity.skinColor || '#f8cba6';
@@ -336,10 +380,11 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   // Badan
   drawPixelBox(ctx, px - 9, py - 5, 18, 13, shirt, '#1e1b18', 2);
 
-  // Animasi tangan mengetik saat WORKING
-  if (isWorking) {
-    const leftTap = Math.sin(timeSec * 20) * 2;
-    const rightTap = Math.cos(timeSec * 20) * 2;
+  // Animasi tangan mengetik hanya saat duduk bekerja di komputer
+  if (isTypingAtDesk) {
+    const speed = isAmbient ? 12 : 20;
+    const leftTap = Math.sin(timeSec * speed) * 2;
+    const rightTap = Math.cos(timeSec * speed) * 2;
     drawPixelBox(ctx, px - 12, py + leftTap, 4, 5, skin, '#1e1b18', 1.2);
     drawPixelBox(ctx, px + 8, py + rightTap, 4, 5, skin, '#1e1b18', 1.2);
   }
@@ -348,28 +393,22 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   drawPixelBox(ctx, px - 9, py - 21, 18, 16, skin, '#1e1b18', 2);
 
   if (facing === 'up') {
-    // Menghadap atas: bagian belakang rambut menutupi kepala
     drawPixelBox(ctx, px - 10, py - 24, 20, 14, hair, '#1e1b18', 1.5);
   } else if (facing === 'left') {
     drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
-    // Rambut sisi kanan (belakang kepala)
     ctx.fillStyle = hair;
     ctx.fillRect(px + 3, py - 18, 6, 9);
-    // Mata menghadap kiri
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(px - 7, py - 14, 2.5, 3);
     ctx.fillRect(px - 2, py - 14, 2.5, 3);
   } else if (facing === 'right') {
     drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
-    // Rambut sisi kiri (belakang kepala)
     ctx.fillStyle = hair;
     ctx.fillRect(px - 9, py - 18, 6, 9);
-    // Mata menghadap kanan
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(px + 0, py - 14, 2.5, 3);
     ctx.fillRect(px + 5, py - 14, 2.5, 3);
   } else {
-    // Menghadap bawah (depan)
     drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(px - 5, py - 14, 2.5, 3);
@@ -377,23 +416,34 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   }
 
   // Ikon dokumen saat handoff / melapor
-  if (!isDirector && entity.carryingDoc) {
+  if (!isDirector && !isAmbient && entity.carryingDoc) {
     drawCarriedDocument(ctx, px, py, facing, timeSec);
   }
 
   const labelName = entity.name || 'Agent';
-  ctx.font = 'bold 11px "Inter", system-ui, sans-serif';
-  const labelW = ctx.measureText(labelName).width + 16;
-  const labelY = py - 44;
+  ctx.font = isAmbient
+    ? '600 10px "Inter", system-ui, sans-serif'
+    : 'bold 11px "Inter", system-ui, sans-serif';
+  const dotSpace = isAmbient ? 0 : 9;
+  const labelW = ctx.measureText(labelName).width + 16 + dotSpace;
+  const labelH = isAmbient ? 16 : 18;
+  const labelY = py - (isAmbient ? 42 : 44);
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  ctx.fillStyle = isAmbient ? 'rgba(15, 23, 42, 0.68)' : 'rgba(15, 23, 42, 0.92)';
   ctx.beginPath();
-  ctx.roundRect(px - labelW / 2, labelY, labelW, 18, 9);
+  ctx.roundRect(px - labelW / 2, labelY, labelW, labelH, 8);
   ctx.fill();
 
-  ctx.fillStyle = '#ffffff';
+  if (!isAmbient) {
+    ctx.fillStyle = isDirector ? '#ec4899' : entity.accentHex || '#6366f1';
+    ctx.beginPath();
+    ctx.arc(px - labelW / 2 + 8, labelY + labelH / 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = isAmbient ? '#cbd5e1' : '#ffffff';
   ctx.textAlign = 'center';
-  ctx.fillText(labelName, px, labelY + 13);
+  ctx.fillText(labelName, px + dotSpace / 2, labelY + (isAmbient ? 11.5 : 13));
 
   if (entity.hasReportExclamation) {
     const bounce = Math.sin(timeSec * 8) * 3;
@@ -405,14 +455,14 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 13px "JetBrains Mono", monospace';
     ctx.fillText('!', px, by + 14.5);
-  } else if (entity.statusBubble || isWorking) {
+  } else if (entity.statusBubble || (!isAmbient && isTypingAtDesk)) {
     const text = entity.statusBubble || '⚙️ Bekerja...';
     ctx.font = '600 10px "Inter", system-ui, sans-serif';
     const bw = Math.max(38, ctx.measureText(text).width + 16);
     const by = labelY - 24;
 
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#334155';
+    ctx.fillStyle = isAmbient ? 'rgba(255,255,255,0.92)' : '#ffffff';
+    ctx.strokeStyle = isAmbient ? '#64748b' : '#334155';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.roundRect(px - bw / 2, by, bw, 20, 8);
@@ -491,6 +541,7 @@ export default function OfficeCanvas2D({
   fxEventsRef = null,
   simSpeed = 1,
   fxEnabled = true,
+  showAmbientStaff = true,
   cameraZoom = 1,
   followDirector = false,
   onDisableFollow = null,
@@ -503,6 +554,11 @@ export default function OfficeCanvas2D({
   const bgBufferRef = useRef(null);
   const keysRef = useRef({});
   const fxEnabledRef = useRef(fxEnabled);
+  const showAmbientRef = useRef(showAmbientStaff);
+  const ambientRef = useRef(null);
+  if (!ambientRef.current) {
+    ambientRef.current = createAmbientEntities();
+  }
   const particlesRef = useRef([]);
   const camRef = useRef({ x: 0, y: 0, zoom: cameraZoom });
   const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, camStartX: 0, camStartY: 0 });
@@ -510,6 +566,10 @@ export default function OfficeCanvas2D({
   useEffect(() => {
     fxEnabledRef.current = fxEnabled;
   }, [fxEnabled]);
+
+  useEffect(() => {
+    showAmbientRef.current = showAmbientStaff;
+  }, [showAmbientStaff]);
 
   useEffect(() => {
     const prevZoom = camRef.current.zoom || 1;
@@ -542,18 +602,22 @@ export default function OfficeCanvas2D({
         keysRef.current[key] = true;
         if (directorRef?.current) {
           directorRef.current.pathQueue = [];
+          directorRef.current.onArriveCallback = null;
+          directorRef.current.isSitting = false;
         }
       }
 
       if (e.code === 'Space' || key === 'e') {
         e.preventDefault();
         const dir = directorRef?.current;
-        const npcs = npcRef?.current || [];
+        const aiNpcs = npcRef?.current || [];
+        const ambNpcs = showAmbientRef.current ? ambientRef.current || [] : [];
+        const allNpcs = [...aiNpcs, ...ambNpcs];
         if (!dir) return;
 
         let nearest = null;
         let minDist = 75;
-        npcs.forEach((npc) => {
+        allNpcs.forEach((npc) => {
           const d = Math.hypot(npc.x - dir.x, npc.y - dir.y);
           if (d < minDist) {
             minDist = d;
@@ -633,6 +697,15 @@ export default function OfficeCanvas2D({
       return null;
     };
 
+    const hitTestAmbient = (wx, wy) => {
+      if (!showAmbientRef.current) return null;
+      const ambList = ambientRef.current || [];
+      for (const staff of ambList) {
+        if (Math.hypot(wx - staff.x, wy - (staff.y - 8)) <= 24) return staff;
+      }
+      return null;
+    };
+
     const onMouseDown = (e) => {
       if (camRef.current.zoom <= 1) return;
       dragRef.current = {
@@ -668,7 +741,7 @@ export default function OfficeCanvas2D({
       }
 
       const pt = toWorld(e.clientX, e.clientY);
-      const hit = hitTestNpc(pt.x, pt.y);
+      const hit = hitTestNpc(pt.x, pt.y) || hitTestAmbient(pt.x, pt.y);
       canvas.style.cursor = hit ? 'pointer' : camRef.current.zoom > 1 ? 'grab' : 'crosshair';
     };
 
@@ -699,11 +772,26 @@ export default function OfficeCanvas2D({
         return;
       }
 
+      const hitAmb = hitTestAmbient(pt.x, pt.y);
+      if (hitAmb) {
+        playRetroTone('click', fxEnabled);
+        const dir = directorRef?.current;
+        if (dir) {
+          hitAmb.facing = resolveFacing(dir.x - hitAmb.x, dir.y - hitAmb.y, hitAmb.facing);
+        }
+        hitAmb.statusBubble =
+          AMBIENT_GREETINGS[Math.floor(Math.random() * AMBIENT_GREETINGS.length)];
+        hitAmb.bubbleClearTimer = 2.6;
+        return;
+      }
+
       onClearInspector?.();
       const clampedX = Math.max(45, Math.min(WORLD_W - 45, pt.x));
       const clampedY = Math.max(45, Math.min(WORLD_H - 45, pt.y));
       const dir = directorRef?.current;
       if (dir) {
+        dir.isSitting = false;
+        dir.onArriveCallback = null;
         dir.targetMarker = { x: clampedX, y: clampedY, ttl: 1.0 };
         dir.pathQueue = buildOfficePath(dir.x, dir.y, { x: clampedX, y: clampedY });
         playRetroTone('step', fxEnabled);
@@ -755,6 +843,14 @@ export default function OfficeCanvas2D({
             dir.x = nextPt.x;
             dir.y = nextPt.y;
             dir.pathQueue.shift();
+            if (dir.pathQueue.length === 0) {
+              dir.isMoving = false;
+              if (dir.onArriveCallback) {
+                const cb = dir.onArriveCallback;
+                dir.onArriveCallback = null;
+                cb();
+              }
+            }
           } else {
             dir.x += (dx / dist) * dirSpeed * dt;
             dir.y += (dy / dist) * dirSpeed * dt;
@@ -863,6 +959,83 @@ export default function OfficeCanvas2D({
         }
       });
 
+      // Update karyawan ambient (Non-AI): duduk kerja di komputer & sesekali beraktivitas
+      if (showAmbientRef.current && ambientRef.current) {
+        const ambSpeed = 82;
+        ambientRef.current.forEach((staff) => {
+          if (staff.hitTimer > 0) staff.hitTimer = Math.max(0, staff.hitTimer - dt);
+          if (staff.bubbleClearTimer > 0) {
+            staff.bubbleClearTimer -= dt;
+            if (staff.bubbleClearTimer <= 0) {
+              staff.statusBubble = '';
+            }
+          }
+
+          if (staff.state === 'WALKING' && staff.pathQueue.length > 0) {
+            const pt = staff.pathQueue[0];
+            const dx = pt.x - staff.x;
+            const dy = pt.y - staff.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 4) {
+              staff.x = pt.x;
+              staff.y = pt.y;
+              staff.pathQueue.shift();
+              if (staff.pathQueue.length === 0) {
+                staff.state = staff.pendingState || 'SITTING_DESK';
+                staff.facing = staff.pendingFacing || staff.deskFacing || 'down';
+                if (staff.pendingBubble) {
+                  staff.statusBubble = staff.pendingBubble;
+                  staff.bubbleClearTimer = 2.8;
+                }
+                staff.stateTimer =
+                  staff.state === 'SITTING_DESK'
+                    ? 14 + Math.random() * 16
+                    : 6 + Math.random() * 7;
+              }
+            } else {
+              staff.x += (dx / dist) * ambSpeed * dt;
+              staff.y += (dy / dist) * ambSpeed * dt;
+              staff.facing = resolveFacing(dx, dy, staff.facing);
+              staff.walkPhase = (staff.walkPhase || 0) + dt * 11;
+            }
+          } else {
+            // Sesekali munculkan bubble kerja ringan saat duduk di komputer
+            if (staff.state === 'SITTING_DESK') {
+              staff.workBubbleTimer -= dt;
+              if (staff.workBubbleTimer <= 0 && !staff.statusBubble) {
+                staff.workBubbleTimer = 9 + Math.random() * 12;
+                const pool = staff.workBubbles || ['💻 Bekerja...'];
+                staff.statusBubble = pool[Math.floor(Math.random() * pool.length)];
+                staff.bubbleClearTimer = 2.6;
+              }
+            }
+
+            staff.stateTimer -= dt;
+            if (staff.stateTimer <= 0) {
+              if (staff.state === 'SITTING_DESK') {
+                // Bangun dari meja menuju aktivitas (kopi, lounge, pingpong, whiteboard)
+                const act =
+                  AMBIENT_ACTIVITIES[Math.floor(Math.random() * AMBIENT_ACTIVITIES.length)];
+                staff.pathQueue = buildOfficePath(staff.x, staff.y, act.spot);
+                staff.state = 'WALKING';
+                staff.pendingState = 'ACTIVITY';
+                staff.pendingFacing = act.facing;
+                staff.pendingBubble = act.bubble;
+              } else {
+                // Kembali duduk bekerja di meja komputernya
+                staff.pathQueue = buildOfficePath(staff.x, staff.y, staff.deskSpot);
+                staff.state = 'WALKING';
+                staff.pendingState = 'SITTING_DESK';
+                staff.pendingFacing = staff.deskFacing;
+                staff.pendingBubble =
+                  staff.workBubbles?.[Math.floor(Math.random() * staff.workBubbles.length)] ||
+                  '💻 Lanjut kerja';
+              }
+            }
+          }
+        });
+      }
+
       // Update partikel
       const particles = particlesRef.current;
       for (let i = particles.length - 1; i >= 0; i--) {
@@ -890,11 +1063,17 @@ export default function OfficeCanvas2D({
 
       ctx.drawImage(bgBufferRef.current, 0, 0);
 
-      // Render animasi layar monitor menyala untuk NPC yang sedang WORKING
+      // Render animasi layar monitor menyala untuk AI Agent WORKING & staf ambient SITTING_DESK
       const npcs = npcRef?.current || [];
+      const ambList = showAmbientRef.current ? ambientRef.current || [] : [];
       npcs.forEach((n) => {
         if (n.state === 'WORKING') {
           drawActiveMonitorOverlay(ctx, n, timeSec);
+        }
+      });
+      ambList.forEach((s) => {
+        if (s.state === 'SITTING_DESK') {
+          drawActiveMonitorOverlay(ctx, s, timeSec * 0.75);
         }
       });
 
@@ -919,6 +1098,7 @@ export default function OfficeCanvas2D({
       const renderList = [
         ...(dir ? [{ ...dir, isDirector: true }] : []),
         ...npcs.map((n) => ({ ...n, isDirector: false })),
+        ...ambList.map((s) => ({ ...s, isDirector: false, isAmbient: true })),
       ].sort((a, b) => (a.y || 0) - (b.y || 0));
 
       renderList.forEach((ent) =>

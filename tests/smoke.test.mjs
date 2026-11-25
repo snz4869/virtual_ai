@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import handler from '../api/interact.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
-import { EXTRA_AGENT_SLOTS, WAYPOINTS } from '../src/constants/officeConfig.js';
+import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, EXTRA_AGENT_SLOTS, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
 import { buildOfficePath, isFootBlocked } from '../src/utils/pathfinding.js';
 
 function assertSegmentClear(ax, ay, bx, by, label) {
@@ -33,6 +33,39 @@ for (const targetKey of ['pantrySpot', 'pingPongSpot', 'loungeSofa', 'director_r
 for (const slot of EXTRA_AGENT_SLOTS) {
   assert.equal(isFootBlocked(slot.homeSpot.x, slot.homeSpot.y), false, `${slot.defaultName} homeSpot blocked`);
   assert.equal(isFootBlocked(slot.deskSpot.x, slot.deskSpot.y), false, `${slot.defaultName} deskSpot blocked`);
+}
+
+// 2b. Ambient staff desks & activity spots clear of colliders and reachable via pathfinding
+for (const staff of AMBIENT_STAFF) {
+  assert.equal(isFootBlocked(staff.deskSpot.x, staff.deskSpot.y), false, `${staff.name} deskSpot blocked`);
+  const pathToLounge = buildOfficePath(staff.deskSpot.x, staff.deskSpot.y, WAYPOINTS.loungeSofa);
+  assert.ok(pathToLounge.length > 0, `${staff.name} must have path to lounge`);
+  let prev = staff.deskSpot;
+  for (const pt of pathToLounge) {
+    assert.equal(isFootBlocked(pt.x, pt.y), false, `${staff.name} path point blocked`);
+    assertSegmentClear(prev.x, prev.y, pt.x, pt.y, `${staff.name} to lounge`);
+    prev = pt;
+  }
+}
+for (const act of AMBIENT_ACTIVITIES) {
+  assert.equal(isFootBlocked(act.spot.x, act.spot.y), false, `Activity "${act.bubble}" spot blocked`);
+}
+
+// 2c. Director Meeting Room seats (3 left, 3 right + head) clear and reachable to exact chair coords
+const allMeetingSeats = [
+  { name: 'director (left-mid)', seat: MEETING_SEATS.director },
+  { name: 'alex (right-mid)', seat: MEETING_SEATS.alex },
+  { name: 'raka (right-top)', seat: MEETING_SEATS.raka },
+  { name: 'nadia (right-bottom)', seat: MEETING_SEATS.nadia },
+  ...MEETING_SEATS.extra.map((seat, i) => ({ name: `extra-${i + 1}`, seat })),
+];
+for (const { name, seat } of allMeetingSeats) {
+  assert.equal(isFootBlocked(seat.x, seat.y), false, `Meeting seat ${name} blocked`);
+  const path = buildOfficePath(WAYPOINTS.desk_raka.x, WAYPOINTS.desk_raka.y, seat);
+  assert.ok(path.length > 0, `Path to meeting seat ${name} must exist`);
+  const last = path[path.length - 1];
+  assert.equal(last.x, seat.x, `Final X for ${name} should land exactly on chair`);
+  assert.equal(last.y, seat.y, `Final Y for ${name} should land exactly on chair`);
 }
 
 // 3. Demo mode streaming + QA VERIFIED + HTML landing page preview

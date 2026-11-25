@@ -5,7 +5,7 @@ import WorkPanel from './components/WorkPanel';
 import SettingsModal from './components/SettingsModal';
 import TeamSopModal from './components/TeamSopModal';
 import HtmlPreviewModal from './components/HtmlPreviewModal';
-import { PRESET_PROMPTS, WAYPOINTS } from './constants/officeConfig';
+import { MEETING_SEATS, PRESET_PROMPTS } from './constants/officeConfig';
 import { createSession, useOfficeState } from './hooks/useOfficeState';
 import { useOfficeRelay } from './hooks/useOfficeRelay';
 import { playRetroTone } from './utils/audio';
@@ -27,6 +27,7 @@ export default function App() {
   const [previewHtmlCode, setPreviewHtmlCode] = useState(null);
   const [cameraZoom, setCameraZoom] = useState(1);
   const [followDirector, setFollowDirector] = useState(false);
+  const [showAmbientStaff, setShowAmbientStaff] = useState(true);
   const [activeModal, setActiveModal] = useState(null);
 
   const fxEventsRef = useRef([]);
@@ -82,6 +83,7 @@ export default function App() {
   };
 
   const relay = useOfficeRelay({
+    directorRef: office.directorRef,
     npcRef: office.npcRef,
     fxEventsRef,
     agents: office.agents,
@@ -154,9 +156,12 @@ export default function App() {
     setSelectedNpcId(null);
     clearFile();
 
-    office.directorRef.current.x = WAYPOINTS?.director_home?.x ?? 175;
-    office.directorRef.current.y = WAYPOINTS?.director_home?.y ?? 95;
+    office.directorRef.current.x = MEETING_SEATS.director.x;
+    office.directorRef.current.y = MEETING_SEATS.director.y;
+    office.directorRef.current.facing = MEETING_SEATS.director.facing;
+    office.directorRef.current.isSitting = true;
     office.directorRef.current.pathQueue = [];
+    office.directorRef.current.onArriveCallback = null;
 
     office.npcRef.current.forEach((npc, idx) => {
       const def = office.agents[idx] || {};
@@ -247,6 +252,8 @@ export default function App() {
           fxEventsRef={fxEventsRef}
           simSpeed={simSpeed}
           fxEnabled={fxEnabled}
+          showAmbientStaff={showAmbientStaff}
+          onToggleAmbientStaff={() => setShowAmbientStaff((v) => !v)}
           cameraZoom={cameraZoom}
           onChangeCameraZoom={setCameraZoom}
           followDirector={followDirector}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LocateFixed, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { LocateFixed, Maximize2, Users, X, ZoomIn, ZoomOut } from 'lucide-react';
 import OfficeCanvas2D from './OfficeCanvas2D';
 import { OFFICE_ROOMS } from '../constants/officeConfig';
 
@@ -9,6 +9,8 @@ export default function OfficeViewport({
   fxEventsRef,
   simSpeed,
   fxEnabled,
+  showAmbientStaff,
+  onToggleAmbientStaff,
   cameraZoom,
   onChangeCameraZoom,
   followDirector,
@@ -58,6 +60,18 @@ export default function OfficeViewport({
           </button>
           <button
             type="button"
+            onClick={onToggleAmbientStaff}
+            className={`p-1 rounded-md border ${
+              showAmbientStaff
+                ? 'bg-emerald-600/25 border-emerald-500/50 text-emerald-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400'
+            }`}
+            title={showAmbientStaff ? 'Sembunyikan karyawan ambient' : 'Tampilkan karyawan ambient'}
+          >
+            <Users className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
             onClick={onToggleFollowDirector}
             className={`p-1 rounded-md border ${
               followDirector
@@ -75,12 +89,26 @@ export default function OfficeViewport({
       <div className="hidden lg:block absolute top-3 left-3 z-10 pointer-events-none">
         <div className="bg-slate-900/85 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 text-[11px] text-slate-300 shadow-lg">
           Gerakkan <strong>Director</strong> via <strong>WASD / Arrow / Klik Lantai</strong> &bull; Klik{' '}
-          <strong>NPC</strong> untuk inspeksi &bull; <strong>Space/E</strong> interaksi
+          <strong>NPC</strong> untuk inspeksi/sapa &bull; <strong>Space/E</strong> interaksi
         </div>
       </div>
 
-      {/* DESKTOP CAMERA CONTROLS (Kanan Atas) */}
+      {/* DESKTOP CAMERA & CROWD CONTROLS (Kanan Atas) */}
       <div className="hidden lg:flex absolute top-3 right-3 z-10 items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-lg">
+        <button
+          type="button"
+          onClick={onToggleAmbientStaff}
+          className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition-colors ${
+            showAmbientStaff
+              ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
+              : 'text-slate-400 hover:bg-slate-800'
+          }`}
+          title="Tampilkan / sembunyikan karyawan non-AI yang meramaikan kantor"
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Staf</span>
+        </button>
+        <div className="w-px h-4 bg-slate-700 mx-0.5" />
         <button
           type="button"
           onClick={zoomOut}
@@ -134,6 +162,7 @@ export default function OfficeViewport({
           fxEventsRef={fxEventsRef}
           simSpeed={simSpeed}
           fxEnabled={fxEnabled}
+          showAmbientStaff={showAmbientStaff}
           cameraZoom={cameraZoom}
           followDirector={followDirector}
           onDisableFollow={onDisableFollow}

@@ -80,11 +80,24 @@ export const OFFICE_ROOMS = [
   },
 ];
 
+// Kursi meja rapat di Ruang Director (3 kiri, 3 kanan)
+export const MEETING_SEATS = {
+  director: { x: 92, y: 178, facing: 'right' }, // Kiri tengah
+  alex: { x: 248, y: 178, facing: 'left' },     // Kanan tengah (Tech Lead)
+  raka: { x: 248, y: 133, facing: 'left' },     // Kanan atas (Developer)
+  nadia: { x: 248, y: 223, facing: 'left' },    // Kanan bawah (QA)
+  extra: [
+    { x: 92, y: 133, facing: 'right' },         // Kiri atas (Spesialis 1)
+    { x: 92, y: 223, facing: 'right' },         // Kiri bawah (Spesialis 2)
+    { x: 170, y: 92, facing: 'down' },          // Sisi atas meja (Spesialis 3)
+  ],
+};
+
 export const WAYPOINTS = {
-  directorDesk: { x: 175, y: 92 },
-  director_home: { x: 175, y: 92 },
+  directorDesk: { x: 92, y: 178 },
+  director_home: { x: 92, y: 178 },
   directorDoor: { x: 274, y: 375 },
-  director_report: { x: 265, y: 185 },
+  director_report: { x: 248, y: 223 },
 
   hallwayNorth: { x: 285, y: 420 },
   hallwayCenter: { x: 285, y: 690 },
@@ -106,7 +119,8 @@ export const WAYPOINTS = {
   lounge_raka: { x: 860, y: 122 },
   lounge_nadia: { x: 902, y: 112 },
   recreationDoor: { x: 537, y: 745 },
-  pingPongSpot: { x: 535, y: 860 },
+  pingPongSpot: { x: 535, y: 868 },
+  pingPongSouth: { x: 535, y: 1068 },
   pantrySpot: { x: 130, y: 500 },
 };
 
@@ -296,4 +310,138 @@ export const PRESET_PROMPTS = [
   'Hitung akar pangkat 3 dari 34 beserta langkah cepatnya.',
   'Buatkan spesifikasi dan kode endpoint REST API untuk sistem manajemen antrean (ambil nomor, panggil berikutnya, cek sisa antrean).',
   'Buat landing page modern untuk produk SaaS manajemen keuangan UMKM lengkap dengan bagian Hero, Fitur Utama, dan Tabel Harga.',
+];
+
+// Karyawan ambient (Non-AI) untuk meramaikan kantor — menempati meja kosong & beraktivitas mandiri
+export const AMBIENT_STAFF = [
+  {
+    id: 'staff-reza',
+    name: 'Reza',
+    role: 'Frontend Staff',
+    accentHex: '#38bdf8',
+    accentLight: '#7dd3fc',
+    shirtColor: '#0284c7',
+    hairColor: '#1e293b',
+    skinColor: '#f5cba7',
+    deskSpot: { x: 463, y: 230 },
+    deskFacing: 'up',
+    deskRect: { x: 415, y: 169, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['💻 Ngoding UI...', '🎨 Rapihin CSS', '☕ Fokus sprint'],
+  },
+  {
+    id: 'staff-maya',
+    name: 'Maya',
+    role: 'Product Ops',
+    accentHex: '#fb7185',
+    accentLight: '#fda4af',
+    shirtColor: '#e11d48',
+    hairColor: '#451a03',
+    skinColor: '#fde68a',
+    deskSpot: { x: 593, y: 230 },
+    deskFacing: 'up',
+    deskRect: { x: 545, y: 169, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['📊 Update roadmap', '📝 Cek tiket', '💻 Review spec'],
+  },
+  {
+    id: 'staff-budi',
+    name: 'Budi',
+    role: 'Backend Dev',
+    accentHex: '#2dd4bf',
+    accentLight: '#99f6e4',
+    shirtColor: '#0d9488',
+    hairColor: '#0f172a',
+    skinColor: '#f1c27d',
+    deskSpot: { x: 463, y: 410 },
+    deskFacing: 'up',
+    deskRect: { x: 415, y: 349, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['⚙️ Optimasi DB', '🧪 Jalanin test', '💻 Debug API'],
+  },
+  {
+    id: 'staff-citra',
+    name: 'Citra',
+    role: 'UI Designer',
+    accentHex: '#c084fc',
+    accentLight: '#e9d5ff',
+    shirtColor: '#9333ea',
+    hairColor: '#7c2d12',
+    skinColor: '#ffdbac',
+    deskSpot: { x: 593, y: 410 },
+    deskFacing: 'up',
+    deskRect: { x: 545, y: 349, w: 96, h: 46 },
+    initialMode: 'ACTIVITY',
+    workBubbles: ['🎨 Desain Figma', '✨ Poles ikon', '💻 Prototipe'],
+  },
+  {
+    id: 'staff-doni',
+    name: 'Doni',
+    role: 'DevOps',
+    accentHex: '#facc15',
+    accentLight: '#fef08a',
+    shirtColor: '#ca8a04',
+    hairColor: '#1e293b',
+    skinColor: '#e5b887',
+    deskSpot: { x: 463, y: 452 },
+    deskFacing: 'down',
+    deskRect: { x: 415, y: 475, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['🖥️ Pantau server', '🚀 Deploy CI/CD', '📈 Cek log'],
+  },
+  {
+    id: 'staff-sari',
+    name: 'Sari',
+    role: 'CX Support',
+    accentHex: '#4ade80',
+    accentLight: '#bbf7d0',
+    shirtColor: '#16a34a',
+    hairColor: '#292524',
+    skinColor: '#f8cba6',
+    deskSpot: { x: 808, y: 655 },
+    deskFacing: 'up',
+    deskRect: { x: 760, y: 594, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['💬 Balas chat user', '🎧 Bantu klien', '📋 Catat feedback'],
+  },
+  {
+    id: 'staff-fajar',
+    name: 'Fajar',
+    role: 'Account Exec',
+    accentHex: '#fb923c',
+    accentLight: '#fed7aa',
+    shirtColor: '#ea580c',
+    hairColor: '#3f2e21',
+    skinColor: '#f1c27d',
+    deskSpot: { x: 808, y: 765 },
+    deskFacing: 'down',
+    deskRect: { x: 760, y: 790, w: 96, h: 46 },
+    initialMode: 'ACTIVITY',
+    workBubbles: ['📞 Follow-up klien', '📑 Siapin pitch', '💻 Kirim proposal'],
+  },
+  {
+    id: 'staff-lala',
+    name: 'Lala',
+    role: 'Office Ops',
+    accentHex: '#f472b6',
+    accentLight: '#fbcfe8',
+    shirtColor: '#db2777',
+    hairColor: '#1e1b4b',
+    skinColor: '#ffdbac',
+    deskSpot: { x: 104, y: 626 },
+    deskFacing: 'down',
+    deskRect: { x: 56, y: 650, w: 96, h: 46 },
+    initialMode: 'SITTING_DESK',
+    workBubbles: ['📦 Cek inventaris', '☕ Stok kopi aman', '📅 Atur jadwal'],
+  },
+];
+
+export const AMBIENT_ACTIVITIES = [
+  { spot: { x: 130, y: 500 }, facing: 'up', bubble: '☕ Seduh kopi' },
+  { spot: { x: 860, y: 115 }, facing: 'down', bubble: '🛋️ Istirahat' },
+  { spot: { x: 838, y: 102 }, facing: 'up', bubble: '📖 Baca buku' },
+  { spot: { x: 535, y: 868 }, facing: 'down', bubble: '🏓 Main pingpong!' },
+  { spot: { x: 535, y: 1068 }, facing: 'up', bubble: '🏓 Smash!' },
+  { spot: { x: 175, y: 92 }, facing: 'up', bubble: '📝 Cek whiteboard' },
+  { spot: { x: 914, y: 905 }, facing: 'up', bubble: '💬 Diskusi singkat' },
 ];

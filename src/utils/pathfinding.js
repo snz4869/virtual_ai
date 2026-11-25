@@ -142,13 +142,18 @@ export function buildOfficePath(fromX, fromY, target) {
   const goal = findNearestWalkable(grid, Math.floor(dest.x / CELL), Math.floor(dest.y / CELL));
 
   const goalWorld = { x: goal.c * CELL + CELL / 2, y: goal.r * CELL + CELL / 2 };
+  const exactTarget =
+    !isFootBlocked(dest.x, dest.y) && hasLineOfSight(goalWorld.x, goalWorld.y, dest.x, dest.y)
+      ? { x: dest.x, y: dest.y }
+      : goalWorld;
+
   if (start.c === goal.c && start.r === goal.r) {
-    return [goalWorld];
+    return [exactTarget];
   }
 
   // Jalur langsung jika garis lurus sudah bebas hambatan
-  if (!isFootBlocked(fromX, fromY) && hasLineOfSight(fromX, fromY, goalWorld.x, goalWorld.y)) {
-    return [goalWorld];
+  if (!isFootBlocked(fromX, fromY) && hasLineOfSight(fromX, fromY, exactTarget.x, exactTarget.y)) {
+    return [exactTarget];
   }
 
   const open = new MinHeap();
@@ -195,6 +200,9 @@ export function buildOfficePath(fromX, fromY, target) {
         node = node.parent;
       }
       rawWaypoints.reverse();
+      if (exactTarget.x !== goalWorld.x || exactTarget.y !== goalWorld.y) {
+        rawWaypoints.push(exactTarget);
+      }
       return smoothPath(fromX, fromY, rawWaypoints);
     }
 
