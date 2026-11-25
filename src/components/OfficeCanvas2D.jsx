@@ -3,67 +3,11 @@ import {
   WORLD_W,
   WORLD_H,
   OFFICE_ROOMS,
+  OFFICE_COLLIDERS,
   WAYPOINTS,
 } from '../constants/officeConfig';
 import { buildOfficePath } from '../utils/pathfinding';
 import { playRetroTone } from '../utils/audio';
-
-// Daftar area padat (Dinding ruangan dengan celah pintu + Furnitur utama)
-const OFFICE_COLLIDERS = [
-  // Dinding luar kantor
-  { x: 0, y: 0, w: 1000, h: 20 },
-  { x: 0, y: 1200, w: 1000, h: 20 },
-  { x: 0, y: 0, w: 20, h: 1220 },
-  { x: 980, y: 0, w: 20, h: 1220 },
-
-  // Dinding Ruangan Director / Meeting (kiri atas, pintu bawah di x: 250..298)
-  { x: 330, y: 20, w: 10, h: 328 },
-  { x: 20, y: 340, w: 230, h: 10 },
-  { x: 298, y: 340, w: 42, h: 10 },
-  { x: 105, y: 115, w: 130, h: 145 }, // Meja rapat
-
-  // Dinding Pantry & Archive (kiri tengah & bawah, celah pintu di y: 410..458 & 840..888)
-  { x: 20, y: 360, w: 218, h: 10 },
-  { x: 230, y: 360, w: 10, h: 50 },
-  { x: 230, y: 458, w: 10, h: 320 },
-  { x: 20, y: 770, w: 218, h: 28 },
-  { x: 230, y: 790, w: 10, h: 50 },
-  { x: 230, y: 888, w: 10, h: 315 },
-  { x: 42, y: 395, w: 168, h: 62 }, // Dispenser & Vending machine
-  { x: 56, y: 650, w: 96, h: 46 },  // Meja kiri
-
-  // Meja Workstation Product Team (6 blok meja ganda)
-  { x: 415, y: 115, w: 96, h: 100 },
-  { x: 545, y: 115, w: 96, h: 100 },
-  { x: 415, y: 295, w: 96, h: 100 },
-  { x: 545, y: 295, w: 96, h: 100 },
-  { x: 415, y: 475, w: 96, h: 100 },
-  { x: 545, y: 475, w: 96, h: 100 },
-
-  // Sofa & Rak Buku Lounge (kanan atas)
-  { x: 754, y: 42, w: 198, h: 42 },
-  { x: 756, y: 130, w: 38, h: 86 },
-  { x: 924, y: 120, w: 38, h: 86 },
-  { x: 825, y: 152, w: 70, h: 40 },
-  { x: 820, y: 225, w: 95, h: 36 },
-
-  // Meja Workstation CX Team (kanan)
-  { x: 756, y: 355, w: 205, h: 44 },
-  { x: 760, y: 540, w: 96, h: 100 },
-  { x: 866, y: 540, w: 96, h: 100 },
-  { x: 760, y: 790, w: 96, h: 100 },
-  { x: 866, y: 790, w: 96, h: 100 },
-  { x: 760, y: 1020, w: 96, h: 100 },
-  { x: 866, y: 1020, w: 96, h: 100 },
-
-  // Dinding & Meja Pingpong Recreation Area (pintu atas di x: 510..564)
-  { x: 356, y: 766, w: 154, h: 10 },
-  { x: 564, y: 766, w: 150, h: 10 },
-  { x: 356, y: 766, w: 10, h: 434 },
-  { x: 706, y: 766, w: 10, h: 434 },
-  { x: 478, y: 895, w: 114, h: 150 }, // Meja Pingpong
-  { x: 645, y: 905, w: 42, h: 115 },  // Sofa Recreation
-];
 
 // Cek apakah area kaki karakter (hitbox 18x12 di sekitar kaki) menabrak objek
 function isPositionBlocked(x, y) {
@@ -75,6 +19,12 @@ function isPositionBlocked(x, y) {
       footBox.y < box.y + box.h &&
       footBox.y + footBox.h > box.y
   );
+}
+
+function resolveFacing(dx, dy, fallback = 'down') {
+  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return fallback;
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left';
+  return dy > 0 ? 'down' : 'up';
 }
 
 function drawPixelBox(ctx, x, y, w, h, fill, stroke = '#2c221e', lineWidth = 2) {
@@ -136,6 +86,42 @@ function drawWorkstation(ctx, x, y, screenColor = '#38bdf8', facing = 'down') {
 
   const chairY = facing === 'down' ? y - 16 : y + 48;
   drawPixelBox(ctx, x + 36, chairY, 24, 14, '#475569', '#1e293b', 2);
+}
+
+function drawActiveMonitorOverlay(ctx, npc, timeSec) {
+  const d = npc?.deskRect;
+  if (!d) return;
+  const pulse = 0.55 + 0.45 * Math.sin(timeSec * 8);
+
+  // Cahaya halo lembut di sekitar monitor aktif
+  ctx.save();
+  ctx.fillStyle = npc.accentHex || '#38bdf8';
+  ctx.globalAlpha = 0.18 * pulse;
+  ctx.fillRect(d.x + 24, d.y + 2, 48, 30);
+
+  // Layar aktif dengan animasi baris kode mengetik
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(d.x + 31, d.y + 9, 34, 15);
+
+  const codeColor = npc.accentLight || '#6ee7b7';
+  const line1W = 10 + Math.round(((Math.sin(timeSec * 6) + 1) / 2) * 16);
+  const line2W = 8 + Math.round(((Math.cos(timeSec * 7.5) + 1) / 2) * 18);
+  const line3W = 6 + Math.round(((Math.sin(timeSec * 9 + 1) + 1) / 2) * 14);
+
+  ctx.fillStyle = codeColor;
+  ctx.fillRect(d.x + 33, d.y + 11, line1W, 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(d.x + 33, d.y + 15, line2W, 2);
+  ctx.fillStyle = codeColor;
+  ctx.fillRect(d.x + 33, d.y + 19, line3W, 2);
+
+  // Kursor berkedip
+  if (Math.floor(timeSec * 4) % 2 === 0) {
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(d.x + 34 + line3W, d.y + 19, 3, 2);
+  }
+  ctx.restore();
 }
 
 function drawBookshelf(ctx, x, y, w = 72) {
@@ -291,13 +277,33 @@ function createOfficeBackgroundBuffer() {
   return off;
 }
 
+function drawCarriedDocument(ctx, px, py, facing, timeSec) {
+  const floatY = Math.sin(timeSec * 10) * 1.5;
+  const docX = facing === 'left' ? px - 17 : px + 8;
+  const docY = py - 5 + floatY;
+
+  // Kertas dokumen pixel-art
+  drawPixelBox(ctx, docX, docY, 11, 13, '#fefce8', '#334155', 1.5);
+  // Lipatan sudut
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillRect(docX + 7, docY + 1, 3, 3);
+  // Garis teks mini
+  ctx.fillStyle = '#6366f1';
+  ctx.fillRect(docX + 2, docY + 4, 5, 1.5);
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(docX + 2, docY + 7, 7, 1.5);
+  ctx.fillRect(docX + 2, docY + 10, 5, 1.5);
+}
+
 function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected = false) {
   if (!entity || typeof entity.x !== 'number' || typeof entity.y !== 'number') return;
 
   const isWalking = isDirector
     ? Boolean(entity.isMoving)
-    : entity.state === 'WALKING' || (entity.state === 'IDLE' && Boolean(entity.roamTarget));
+    : entity.state === 'WALKING' ||
+      (entity.state === 'IDLE' && Array.isArray(entity.roamPath) && entity.roamPath.length > 0);
   const isWorking = !isDirector && entity.state === 'WORKING';
+  const facing = entity.facing || 'down';
 
   const bob = isWalking ? Math.abs(Math.sin(entity.walkPhase || 0)) * -4 : 0;
   const shakeX = entity.hitTimer > 0 ? Math.sin(timeSec * 65) * 4 : 0;
@@ -327,13 +333,53 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   const skin = entity.skinColor || '#f8cba6';
   const hair = entity.hairColor || '#1e293b';
 
+  // Badan
   drawPixelBox(ctx, px - 9, py - 5, 18, 13, shirt, '#1e1b18', 2);
-  drawPixelBox(ctx, px - 9, py - 21, 18, 16, skin, '#1e1b18', 2);
-  drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
 
-  ctx.fillStyle = '#0f172a';
-  ctx.fillRect(px - 5, py - 14, 2.5, 3);
-  ctx.fillRect(px + 3, py - 14, 2.5, 3);
+  // Animasi tangan mengetik saat WORKING
+  if (isWorking) {
+    const leftTap = Math.sin(timeSec * 20) * 2;
+    const rightTap = Math.cos(timeSec * 20) * 2;
+    drawPixelBox(ctx, px - 12, py + leftTap, 4, 5, skin, '#1e1b18', 1.2);
+    drawPixelBox(ctx, px + 8, py + rightTap, 4, 5, skin, '#1e1b18', 1.2);
+  }
+
+  // Kepala + Rambut & Mata mengikuti arah `facing`
+  drawPixelBox(ctx, px - 9, py - 21, 18, 16, skin, '#1e1b18', 2);
+
+  if (facing === 'up') {
+    // Menghadap atas: bagian belakang rambut menutupi kepala
+    drawPixelBox(ctx, px - 10, py - 24, 20, 14, hair, '#1e1b18', 1.5);
+  } else if (facing === 'left') {
+    drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
+    // Rambut sisi kanan (belakang kepala)
+    ctx.fillStyle = hair;
+    ctx.fillRect(px + 3, py - 18, 6, 9);
+    // Mata menghadap kiri
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px - 7, py - 14, 2.5, 3);
+    ctx.fillRect(px - 2, py - 14, 2.5, 3);
+  } else if (facing === 'right') {
+    drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
+    // Rambut sisi kiri (belakang kepala)
+    ctx.fillStyle = hair;
+    ctx.fillRect(px - 9, py - 18, 6, 9);
+    // Mata menghadap kanan
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px + 0, py - 14, 2.5, 3);
+    ctx.fillRect(px + 5, py - 14, 2.5, 3);
+  } else {
+    // Menghadap bawah (depan)
+    drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(px - 5, py - 14, 2.5, 3);
+    ctx.fillRect(px + 3, py - 14, 2.5, 3);
+  }
+
+  // Ikon dokumen saat handoff / melapor
+  if (!isDirector && entity.carryingDoc) {
+    drawCarriedDocument(ctx, px, py, facing, timeSec);
+  }
 
   const labelName = entity.name || 'Agent';
   ctx.font = 'bold 11px "Inter", system-ui, sans-serif';
@@ -382,7 +428,6 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
     const tx = entity.actionTarget ? entity.actionTarget.x : px + 36;
     const ty = entity.actionTarget ? entity.actionTarget.y - 6 : py - 4;
 
-    // Garis cambuk / ayunan melengkung
     ctx.strokeStyle = '#facc15';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -390,7 +435,6 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
     ctx.quadraticCurveTo((px + tx) / 2, py - 26, tx, ty);
     ctx.stroke();
 
-    // Teks efek kartun "PLAK!"
     if (entity.actionTarget) {
       ctx.font = 'bold 13px "JetBrains Mono", monospace';
       ctx.fillStyle = '#ef4444';
@@ -403,11 +447,54 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   }
 }
 
+function spawnParticles(particles, event) {
+  if (event.type === 'confetti') {
+    const colors = ['#10b981', '#6366f1', '#facc15', '#ec4899', '#38bdf8', '#fb923c'];
+    for (let i = 0; i < 36; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 55 + Math.random() * 140;
+      particles.push({
+        x: event.x,
+        y: event.y - 16,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 90,
+        gravity: 220,
+        size: 3 + Math.random() * 3.5,
+        color: colors[i % colors.length],
+        life: 1.1 + Math.random() * 0.7,
+        maxLife: 1.8,
+      });
+    }
+  } else if (event.type === 'handoff') {
+    const colors = ['#facc15', '#38bdf8', '#a78bfa'];
+    for (let i = 0; i < 12; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 25 + Math.random() * 55;
+      particles.push({
+        x: event.x,
+        y: event.y - 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 35,
+        gravity: 40,
+        size: 2.5 + Math.random() * 2,
+        color: colors[i % colors.length],
+        life: 0.55 + Math.random() * 0.3,
+        maxLife: 0.85,
+      });
+    }
+  }
+}
+
 export default function OfficeCanvas2D({
   npcRef,
   directorRef,
+  fxEventsRef = null,
   simSpeed = 1,
   fxEnabled = true,
+  cameraZoom = 1,
+  followDirector = false,
+  onDisableFollow = null,
+  onZoomChange = null,
   selectedNpcId = null,
   onSelectNpc,
   onClearInspector,
@@ -415,12 +502,41 @@ export default function OfficeCanvas2D({
   const canvasRef = useRef(null);
   const bgBufferRef = useRef(null);
   const keysRef = useRef({});
+  const fxEnabledRef = useRef(fxEnabled);
+  const particlesRef = useRef([]);
+  const camRef = useRef({ x: 0, y: 0, zoom: cameraZoom });
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, camStartX: 0, camStartY: 0 });
+
+  useEffect(() => {
+    fxEnabledRef.current = fxEnabled;
+  }, [fxEnabled]);
+
+  useEffect(() => {
+    const prevZoom = camRef.current.zoom || 1;
+    const nextZoom = Math.max(1, Math.min(2.2, cameraZoom || 1));
+    if (nextZoom === 1) {
+      camRef.current = { x: 0, y: 0, zoom: 1 };
+      return;
+    }
+    // Pertahankan titik pusat saat zoom berubah
+    const prevViewW = WORLD_W / prevZoom;
+    const prevViewH = WORLD_H / prevZoom;
+    const centerX = camRef.current.x + prevViewW / 2;
+    const centerY = camRef.current.y + prevViewH / 2;
+    const nextViewW = WORLD_W / nextZoom;
+    const nextViewH = WORLD_H / nextZoom;
+    camRef.current = {
+      zoom: nextZoom,
+      x: Math.max(0, Math.min(WORLD_W - nextViewW, centerX - nextViewW / 2)),
+      y: Math.max(0, Math.min(WORLD_H - nextViewH, centerY - nextViewH / 2)),
+    };
+  }, [cameraZoom]);
 
   // Keyboard WASD / Arrow Keys untuk karakter Director
   useEffect(() => {
     const handleKeyDown = (e) => {
       const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       const key = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         keysRef.current[key] = true;
@@ -435,7 +551,6 @@ export default function OfficeCanvas2D({
         const npcs = npcRef?.current || [];
         if (!dir) return;
 
-        // Cari NPC terdekat dalam jarak 75 pixel
         let nearest = null;
         let minDist = 75;
         npcs.forEach((npc) => {
@@ -446,18 +561,17 @@ export default function OfficeCanvas2D({
           }
         });
 
-        // Picu animasi ayunan tangan/cambuk Director
         dir.actionTimer = 0.28;
         dir.actionTarget = nearest ? { x: nearest.x, y: nearest.y } : null;
-        playRetroTone('slap', fxEnabled);
+        playRetroTone('slap', fxEnabledRef.current);
 
         if (nearest) {
+          dir.facing = resolveFacing(nearest.x - dir.x, nearest.y - dir.y, dir.facing);
           const reactions = ['Ampun Bos! 😵', 'Siap kerja! 🫡', 'Aduh! ⚡', 'Oke lembur! 💻'];
           nearest.hitTimer = 0.45;
           nearest.statusBubble = reactions[Math.floor(Math.random() * reactions.length)];
           nearest.bubbleClearTimer = 2.0;
 
-          // Dorong sedikit menjauh (efek kartun) jika lantai aman
           const angle = Math.atan2(nearest.y - dir.y, nearest.x - dir.x);
           const pushX = nearest.x + Math.cos(angle) * 14;
           const pushY = nearest.y + Math.sin(angle) * 14;
@@ -473,13 +587,19 @@ export default function OfficeCanvas2D({
       delete keysRef.current[e.key.toLowerCase()];
     };
 
+    const handleBlur = () => {
+      keysRef.current = {};
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
     };
-  }, [directorRef]);
+  }, [directorRef, npcRef]);
 
   useEffect(() => {
     if (!bgBufferRef.current) {
@@ -494,11 +614,12 @@ export default function OfficeCanvas2D({
 
     const toWorld = (clientX, clientY) => {
       const rect = canvas.getBoundingClientRect();
-      const scaleX = WORLD_W / rect.width;
-      const scaleY = WORLD_H / rect.height;
+      const canvasX = ((clientX - rect.left) / rect.width) * WORLD_W;
+      const canvasY = ((clientY - rect.top) / rect.height) * WORLD_H;
+      const { x: camX, y: camY, zoom } = camRef.current;
       return {
-        x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY,
+        x: canvasX / zoom + camX,
+        y: canvasY / zoom + camY,
       };
     };
 
@@ -512,13 +633,64 @@ export default function OfficeCanvas2D({
       return null;
     };
 
+    const onMouseDown = (e) => {
+      if (camRef.current.zoom <= 1) return;
+      dragRef.current = {
+        active: true,
+        moved: false,
+        startX: e.clientX,
+        startY: e.clientY,
+        camStartX: camRef.current.x,
+        camStartY: camRef.current.y,
+      };
+    };
+
     const onMouseMove = (e) => {
+      if (dragRef.current.active && camRef.current.zoom > 1) {
+        const dxScreen = e.clientX - dragRef.current.startX;
+        const dyScreen = e.clientY - dragRef.current.startY;
+        if (Math.hypot(dxScreen, dyScreen) > 6) {
+          dragRef.current.moved = true;
+          onDisableFollow?.();
+        }
+        if (dragRef.current.moved) {
+          const rect = canvas.getBoundingClientRect();
+          const zoom = camRef.current.zoom;
+          const dxWorld = (dxScreen / rect.width) * (WORLD_W / zoom);
+          const dyWorld = (dyScreen / rect.height) * (WORLD_H / zoom);
+          const viewW = WORLD_W / zoom;
+          const viewH = WORLD_H / zoom;
+          camRef.current.x = Math.max(0, Math.min(WORLD_W - viewW, dragRef.current.camStartX - dxWorld));
+          camRef.current.y = Math.max(0, Math.min(WORLD_H - viewH, dragRef.current.camStartY - dyWorld));
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
+      }
+
       const pt = toWorld(e.clientX, e.clientY);
       const hit = hitTestNpc(pt.x, pt.y);
-      canvas.style.cursor = hit ? 'pointer' : 'crosshair';
+      canvas.style.cursor = hit ? 'pointer' : camRef.current.zoom > 1 ? 'grab' : 'crosshair';
+    };
+
+    const onMouseUp = () => {
+      if (dragRef.current.active) {
+        dragRef.current.active = false;
+      }
+    };
+
+    const onWheel = (e) => {
+      if (!e.ctrlKey || !onZoomChange) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.2 : -0.2;
+      const next = Math.max(1, Math.min(2.2, Number((camRef.current.zoom + delta).toFixed(1))));
+      onZoomChange(next);
     };
 
     const onClick = (e) => {
+      if (dragRef.current.moved) {
+        dragRef.current.moved = false;
+        return;
+      }
       const pt = toWorld(e.clientX, e.clientY);
       const hit = hitTestNpc(pt.x, pt.y);
       if (hit) {
@@ -538,10 +710,19 @@ export default function OfficeCanvas2D({
       }
     };
 
+    canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('click', onClick);
 
     const update = (dt) => {
+      // Kuras antrean efek partikel (confetti QA / handoff sparkle)
+      if (fxEventsRef?.current && fxEventsRef.current.length > 0) {
+        const queued = fxEventsRef.current.splice(0, fxEventsRef.current.length);
+        queued.forEach((evt) => spawnParticles(particlesRef.current, evt));
+      }
+
       const dir = directorRef?.current;
       const keys = keysRef.current;
       const dirSpeed = 220;
@@ -559,10 +740,10 @@ export default function OfficeCanvas2D({
           const nextX = dir.x + (vx / len) * dirSpeed * dt;
           const nextY = dir.y + (vy / len) * dirSpeed * dt;
 
-          // Cek sumbu X dan Y terpisah agar karakter bisa meluncur di tepi objek
           if (!isPositionBlocked(nextX, dir.y)) dir.x = nextX;
           if (!isPositionBlocked(dir.x, nextY)) dir.y = nextY;
 
+          dir.facing = resolveFacing(vx, vy, dir.facing);
           dir.isMoving = true;
           dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
         } else if (dir.pathQueue && dir.pathQueue.length > 0) {
@@ -577,6 +758,7 @@ export default function OfficeCanvas2D({
           } else {
             dir.x += (dx / dist) * dirSpeed * dt;
             dir.y += (dy / dist) * dirSpeed * dt;
+            dir.facing = resolveFacing(dx, dy, dir.facing);
             dir.isMoving = true;
             dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
           }
@@ -587,14 +769,25 @@ export default function OfficeCanvas2D({
         if (dir.targetMarker && dir.targetMarker.ttl > 0) {
           dir.targetMarker.ttl -= dt;
         }
+
+        if (dir.actionTimer > 0) {
+          dir.actionTimer = Math.max(0, dir.actionTimer - dt);
+        }
+
+        // Smooth camera follow Director ketika zoom > 1
+        if (followDirector && camRef.current.zoom > 1) {
+          const viewW = WORLD_W / camRef.current.zoom;
+          const viewH = WORLD_H / camRef.current.zoom;
+          const targetCamX = Math.max(0, Math.min(WORLD_W - viewW, dir.x - viewW / 2));
+          const targetCamY = Math.max(0, Math.min(WORLD_H - viewH, dir.y - viewH / 2));
+          const lerp = Math.min(1, dt * 6);
+          camRef.current.x += (targetCamX - camRef.current.x) * lerp;
+          camRef.current.y += (targetCamY - camRef.current.y) * lerp;
+        }
       }
 
       const npcs = npcRef?.current || [];
       const npcSpeed = 180;
-
-      if (dir?.actionTimer > 0) {
-        dir.actionTimer = Math.max(0, dir.actionTimer - dt);
-      }
 
       npcs.forEach((npc) => {
         if (npc.hitTimer > 0) npc.hitTimer = Math.max(0, npc.hitTimer - dt);
@@ -604,7 +797,9 @@ export default function OfficeCanvas2D({
             npc.statusBubble = '';
           }
         }
+
         if (npc.state === 'WALKING' && npc.pathQueue && npc.pathQueue.length > 0) {
+          npc.roamPath = [];
           const target = npc.pathQueue[0];
           const dx = target.x - npc.x;
           const dy = target.y - npc.y;
@@ -622,34 +817,62 @@ export default function OfficeCanvas2D({
           } else {
             npc.x += (dx / dist) * npcSpeed * dt;
             npc.y += (dy / dist) * npcSpeed * dt;
+            npc.facing = resolveFacing(dx, dy, npc.facing);
             npc.walkPhase = (npc.walkPhase || 0) + dt * 14;
           }
         } else if (npc.state === 'IDLE') {
-          npc.roamCooldown = (npc.roamCooldown ?? 2 + Math.random() * 3) - dt;
-          if (npc.roamTarget) {
-            const dx = npc.roamTarget.x - npc.x;
-            const dy = npc.roamTarget.y - npc.y;
+          npc.roamCooldown = (npc.roamCooldown ?? 2.5 + Math.random() * 3.5) - dt;
+          if (Array.isArray(npc.roamPath) && npc.roamPath.length > 0) {
+            const pt = npc.roamPath[0];
+            const dx = pt.x - npc.x;
+            const dy = pt.y - npc.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 3) {
-              npc.roamTarget = null;
+            if (dist < 4) {
+              npc.x = pt.x;
+              npc.y = pt.y;
+              npc.roamPath.shift();
+              if (npc.roamPath.length === 0 && npc.pendingIdleBubble) {
+                npc.statusBubble = npc.pendingIdleBubble;
+                npc.bubbleClearTimer = 2.4;
+                npc.pendingIdleBubble = '';
+                npc.facing = 'down';
+              }
             } else {
-              npc.x += (dx / dist) * 52 * dt;
-              npc.y += (dy / dist) * 52 * dt;
-              npc.walkPhase = (npc.walkPhase || 0) + dt * 9;
+              npc.x += (dx / dist) * 68 * dt;
+              npc.y += (dy / dist) * 68 * dt;
+              npc.facing = resolveFacing(dx, dy, npc.facing);
+              npc.walkPhase = (npc.walkPhase || 0) + dt * 10;
             }
           } else if (npc.roamCooldown <= 0) {
-            npc.roamCooldown = 3 + Math.random() * 4;
-            const spots = [
-              npc.homeSpot,
-              WAYPOINTS.loungeSofa,
-              WAYPOINTS.lounge_alex,
-              WAYPOINTS.lounge_raka,
-              WAYPOINTS.lounge_nadia,
-            ].filter(Boolean);
-            npc.roamTarget = spots[Math.floor(Math.random() * spots.length)];
+            npc.roamCooldown = 4.5 + Math.random() * 5;
+            const activities = [
+              { spot: npc.homeSpot, bubble: '🛋️ Santai' },
+              { spot: WAYPOINTS.loungeSofa, bubble: '💬 Ngobrol' },
+              { spot: WAYPOINTS.lounge_alex, bubble: '' },
+              { spot: WAYPOINTS.lounge_raka, bubble: '' },
+              { spot: WAYPOINTS.pantrySpot, bubble: '☕ Ambil kopi' },
+              { spot: WAYPOINTS.pingPongSpot, bubble: '🏓 Pingpong' },
+            ].filter((a) => Boolean(a.spot));
+
+            const chosen = activities[Math.floor(Math.random() * activities.length)];
+            if (chosen && Math.hypot(chosen.spot.x - npc.x, chosen.spot.y - npc.y) > 18) {
+              npc.roamPath = buildOfficePath(npc.x, npc.y, chosen.spot);
+              npc.pendingIdleBubble = chosen.bubble;
+            }
           }
         }
       });
+
+      // Update partikel
+      const particles = particlesRef.current;
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.vy += p.gravity * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
     };
 
     const loop = (now) => {
@@ -657,8 +880,23 @@ export default function OfficeCanvas2D({
       lastTime = now;
       update(dt);
 
+      const timeSec = now / 1000;
+      const { x: camX, y: camY, zoom } = camRef.current;
+
       ctx.clearRect(0, 0, WORLD_W, WORLD_H);
+      ctx.save();
+      ctx.scale(zoom, zoom);
+      ctx.translate(-camX, -camY);
+
       ctx.drawImage(bgBufferRef.current, 0, 0);
+
+      // Render animasi layar monitor menyala untuk NPC yang sedang WORKING
+      const npcs = npcRef?.current || [];
+      npcs.forEach((n) => {
+        if (n.state === 'WORKING') {
+          drawActiveMonitorOverlay(ctx, n, timeSec);
+        }
+      });
 
       const dir = directorRef?.current;
       if (dir?.targetMarker && dir.targetMarker.ttl > 0) {
@@ -667,31 +905,61 @@ export default function OfficeCanvas2D({
         ctx.lineWidth = 2.5;
         ctx.globalAlpha = Math.max(0, dir.targetMarker.ttl);
         ctx.beginPath();
-        ctx.arc(dir.targetMarker.x, dir.targetMarker.y, 14 * (1.2 - dir.targetMarker.ttl), 0, Math.PI * 2);
+        ctx.arc(
+          dir.targetMarker.x,
+          dir.targetMarker.y,
+          14 * (1.2 - dir.targetMarker.ttl),
+          0,
+          Math.PI * 2
+        );
         ctx.stroke();
         ctx.restore();
       }
 
-      const npcs = npcRef?.current || [];
       const renderList = [
         ...(dir ? [{ ...dir, isDirector: true }] : []),
         ...npcs.map((n) => ({ ...n, isDirector: false })),
       ].sort((a, b) => (a.y || 0) - (b.y || 0));
 
       renderList.forEach((ent) =>
-        drawRPGCharacter(ctx, ent, now / 1000, ent.isDirector, ent.id === selectedNpcId)
+        drawRPGCharacter(ctx, ent, timeSec, ent.isDirector, ent.id === selectedNpcId)
       );
 
+      // Render partikel (confetti & handoff sparkle)
+      particlesRef.current.forEach((p) => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+        ctx.restore();
+      });
+
+      ctx.restore();
       animId = requestAnimationFrame(loop);
     };
 
     animId = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(animId);
+      canvas.removeEventListener('mousedown', onMouseDown);
       canvas.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('click', onClick);
     };
-  }, [simSpeed, fxEnabled, selectedNpcId, npcRef, directorRef, onSelectNpc, onClearInspector]);
+  }, [
+    simSpeed,
+    fxEnabled,
+    followDirector,
+    selectedNpcId,
+    npcRef,
+    directorRef,
+    fxEventsRef,
+    onSelectNpc,
+    onClearInspector,
+    onDisableFollow,
+    onZoomChange,
+  ]);
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#1e1b24] flex items-center justify-center p-2">
@@ -699,7 +967,7 @@ export default function OfficeCanvas2D({
         ref={canvasRef}
         width={WORLD_W}
         height={WORLD_H}
-        className="rounded-xl shadow-2xl border-2 border-slate-700 max-w-full max-h-full w-auto h-full object-contain"
+        className="rounded-xl shadow-2xl border-2 border-slate-700 max-w-full max-h-full aspect-[1000/1220] touch-manipulation"
         style={{ imageRendering: 'pixelated' }}
       />
     </div>

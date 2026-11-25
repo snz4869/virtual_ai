@@ -54,7 +54,7 @@ export const OFFICE_ROOMS = [
     h: 410,
     floorColor: '#e7e2f0',
     tileAlt: '#dcd6e8',
-    door: { x: 234, y: 410, h: 48, side: 'right' },
+    door: { x: 234, y: 476, h: 52, side: 'right' },
   },
   {
     id: 'recreation',
@@ -123,10 +123,10 @@ export const OFFICE_COLLIDERS = [
   { x: 298, y: 340, w: 42, h: 10 },
   { x: 105, y: 115, w: 130, h: 145 },
 
-  // Dinding & Furnitur Pantry / Archive (pintu kanan di y: 410..458 & 840..888)
+  // Dinding & Furnitur Pantry / Archive (pintu kanan di y: 476..528 & 840..888)
   { x: 20, y: 360, w: 218, h: 10 },
-  { x: 230, y: 360, w: 10, h: 50 },
-  { x: 230, y: 458, w: 10, h: 320 },
+  { x: 230, y: 360, w: 10, h: 116 },
+  { x: 230, y: 528, w: 10, h: 250 },
   { x: 20, y: 770, w: 218, h: 28 },
   { x: 230, y: 790, w: 10, h: 50 },
   { x: 230, y: 888, w: 10, h: 315 },
@@ -166,11 +166,73 @@ export const OFFICE_COLLIDERS = [
   { x: 645, y: 905, w: 42, h: 115 },
 ];
 
+export const AVAILABLE_MODELS = [
+  { id: 'auto', label: 'Auto (Ikuti Pengaturan Global)' },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Cepat)' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Seimbang)' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Coding / Kompleks)' },
+  { id: 'deepseek-chat', label: 'DeepSeek Chat' },
+];
+
+export const CORE_AGENT_IDS = ['alex', 'raka', 'nadia'];
+
+export const EXTRA_AGENT_SLOTS = [
+  {
+    accentHex: '#06b6d4',
+    accentLight: '#67e8f9',
+    badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+    avatarBg: 'bg-cyan-600',
+    shirtColor: '#06b6d4',
+    hairColor: '#0f172a',
+    skinColor: '#f5cba7',
+    homeSpot: { x: 838, y: 102 },
+    deskSpot: { x: 463, y: 272 },
+    deskRect: { x: 415, y: 295, w: 96, h: 46 },
+    defaultName: 'Sinta',
+    defaultRole: 'UI/UX Designer',
+    defaultSop:
+      'Berikan arahan desain UI/UX, tata letak visual, palet warna, dan aksesibilitas secara ringkas sesuai Perintah Director agar Raka dapat mengeksekusinya dengan presisi.',
+  },
+  {
+    accentHex: '#f43f5e',
+    accentLight: '#fda4af',
+    badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+    avatarBg: 'bg-rose-600',
+    shirtColor: '#f43f5e',
+    hairColor: '#451a03',
+    skinColor: '#fde68a',
+    homeSpot: { x: 882, y: 102 },
+    deskSpot: { x: 593, y: 272 },
+    deskRect: { x: 545, y: 295, w: 96, h: 46 },
+    defaultName: 'Bima',
+    defaultRole: 'Data & Security Analyst',
+    defaultSop:
+      'Analisis kebutuhan data, validasi input, edge-case keamanan, dan performa secara ringkas sesuai Perintah Director sebelum atau saat implementasi.',
+  },
+  {
+    accentHex: '#f59e0b',
+    accentLight: '#fcd34d',
+    badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+    avatarBg: 'bg-amber-600',
+    shirtColor: '#f59e0b',
+    hairColor: '#1e293b',
+    skinColor: '#f1c27d',
+    homeSpot: { x: 535, y: 860 },
+    deskSpot: { x: 914, y: 515 },
+    deskRect: { x: 866, y: 540, w: 96, h: 46 },
+    defaultName: 'Dina',
+    defaultRole: 'Copywriter & Growth',
+    defaultSop:
+      'Susun copywriting, headline, CTA, dan struktur pesan yang persuasif, singkat, dan sesuai target audiens pada Perintah Director.',
+  },
+];
+
 export const DEFAULT_AGENTS = [
   {
     id: 'alex',
     name: 'Alex',
     role: 'Tech Lead',
+    preferredModel: 'auto',
     accentHex: '#3b82f6',
     accentLight: '#93c5fd',
     badgeClass: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
@@ -187,6 +249,7 @@ export const DEFAULT_AGENTS = [
     id: 'raka',
     name: 'Raka',
     role: 'Developer / Executor',
+    preferredModel: 'auto',
     accentHex: '#10b981',
     accentLight: '#6ee7b7',
     badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
@@ -203,6 +266,7 @@ export const DEFAULT_AGENTS = [
     id: 'nadia',
     name: 'Nadia',
     role: 'CX & QA Lead',
+    preferredModel: 'auto',
     accentHex: '#a855f7',
     accentLight: '#d8b4fe',
     badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
