@@ -102,8 +102,12 @@ ${projectBrief}`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
+        systemInstruction: { parts: [{ text: systemPrompt || '' }] },
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          maxOutputTokens: 8192,
+          temperature: 0.4,
+        },
       }),
     }
   );
