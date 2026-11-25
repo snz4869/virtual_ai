@@ -197,7 +197,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_raka,
     deskSpot: WAYPOINTS.desk_raka,
     deskRect: { x: 545, y: 115, w: 96, h: 46 },
-    sop: 'Eksekusi hasil akhir secara langsung berdasarkan Perintah Director dan kerangka Alex. Jangan mengulang penjelasan rencana Alex. Berikan jawaban final yang bersih, akurat, dan siap pakai—baik berupa hasil hitungan + langkah singkat, teks/dokumen terstruktur, maupun kode lengkap tanpa placeholder.',
+    sop: 'Eksekusi hasil akhir secara langsung berdasarkan Perintah Director dan kerangka Alex. Jangan mengulang rencana Alex. Tulis kode lengkap 100% dari awal hingga penutup akhir (seperti </html>) tanpa pernah terpotong, tanpa "// ...", dan tanpa placeholder. Jika membuat HTML/UI, buat struktur yang bersih, padat, dan efisien agar seluruh kode selesai utuh dalam satu respons.',
   },
   {
     id: 'nadia',
