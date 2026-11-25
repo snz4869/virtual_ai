@@ -181,7 +181,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_alex,
     deskSpot: WAYPOINTS.desk_alex,
     deskRect: { x: 415, y: 115, w: 96, h: 46 },
-    sop: 'Pecah Project Brief secara proporsional: ringkas (maks. 3 poin) untuk hitungan/pertanyaan cepat, atau kontrak teknis lengkap untuk permintaan fitur/sistem.',
+    sop: 'Fokus HANYA pada Perintah Director. Klasifikasikan skala tugas: (1) Jika tugas singkat/hitungan/pertanyaan langsung, buat kerangka jawab maks. 2 poin tanpa menulis jawaban akhir atau kode; (2) Jika tugas kompleks/teknis/kreatif, susun spesifikasi, struktur, dan batasan eksekusi agar Raka tidak overengineering. Dilarang menulis hasil akhir.',
   },
   {
     id: 'raka',
@@ -197,7 +197,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_raka,
     deskSpot: WAYPOINTS.desk_raka,
     deskRect: { x: 545, y: 115, w: 96, h: 46 },
-    sop: 'Tulis jawaban langsung dengan langkah cepat untuk pertanyaan ringkas, atau kode bersih dan aman sesuai kontrak Tech Lead untuk proyek teknis.',
+    sop: 'Eksekusi hasil akhir secara langsung berdasarkan Perintah Director dan kerangka Alex. Jangan mengulang penjelasan rencana Alex. Berikan jawaban final yang bersih, akurat, dan siap pakai—baik berupa hasil hitungan + langkah singkat, teks/dokumen terstruktur, maupun kode lengkap tanpa placeholder.',
   },
   {
     id: 'nadia',
@@ -213,7 +213,7 @@ export const DEFAULT_AGENTS = [
     homeSpot: WAYPOINTS.lounge_nadia,
     deskSpot: WAYPOINTS.desk_nadia,
     deskRect: { x: 760, y: 540, w: 96, h: 46 },
-    sop: 'Verifikasi akurasi perhitungan/logika secara mandiri (status VERIFIED) untuk tugas ringkas, atau audit edge-case & keamanan untuk kode teknis.',
+    sop: 'Audit hasil kerja Raka terhadap Perintah Director. Hitung/cek ulang secara mandiri: jika semua syarat terpenuhi dan akurat, berikan ringkasan validasi singkat dengan label [STATUS: VERIFIED]; jika ada kesalahan logika, hitungan, atau celah keamanan/edge-case, langsung tuliskan koreksi perbaikannya dengan label [STATUS: REVISED].',
   },
 ];
 
