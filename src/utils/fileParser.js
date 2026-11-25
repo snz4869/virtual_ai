@@ -15,7 +15,7 @@ export const ALLOWED_FILE_TYPES = [
   ...OFFICE_DOC_MIME_TYPES,
 ];
 
-const MAX_EXTRACTED_CHARS = 60000;
+const MAX_EXTRACTED_CHARS = 180000;
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {

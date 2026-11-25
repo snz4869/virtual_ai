@@ -11,6 +11,18 @@ const GEMINI_INLINE_MIME_TYPES = new Set([
   'image/webp',
 ]);
 
+const GEMINI_MAX_OUTPUT_TOKENS = 32768;
+
+function isTextTruncated(text, finishReason = '') {
+  if (finishReason === 'MAX_TOKENS') return true;
+  const trimmed = (text || '').trim();
+  if (!trimmed) return false;
+  const fences = trimmed.match(/```/g);
+  if (fences && fences.length % 2 === 1) return true;
+  if (/(<!doctype\s+html|<html[\s>])/i.test(trimmed) && !/<\/html\s*>/i.test(trimmed)) return true;
+  return false;
+}
+
 function buildPromptWithAttachment(userPrompt, fileData, { forDeepSeek = false } = {}) {
   if (!fileData) return userPrompt;
 
@@ -250,7 +262,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: systemPrompt || '' }] },
             contents: [{ role: 'user', parts: userParts }],
-            generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+            generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
           }),
         });
 
@@ -270,7 +282,7 @@ export default async function handler(req, res) {
             if (chunk?.usageMetadata) usage = normalizeGeminiUsage(chunk.usageMetadata);
           });
 
-          if (fullText && finishReason === 'MAX_TOKENS') {
+          if (fullText && isTextTruncated(fullText, finishReason)) {
             const contRes = await fetch(streamUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -288,7 +300,7 @@ export default async function handler(req, res) {
                     ],
                   },
                 ],
-                generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+                generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
               }),
             });
 
@@ -340,7 +352,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt || '' }] },
           contents: [{ role: 'user', parts: userParts }],
-          generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+          generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
         }),
       });
 
@@ -350,7 +362,7 @@ export default async function handler(req, res) {
         let text = candidate?.content?.parts?.map((p) => p.text || '').join('') || '';
         let usage = normalizeGeminiUsage(gData?.usageMetadata);
 
-        if (text && candidate?.finishReason === 'MAX_TOKENS') {
+        if (text && isTextTruncated(text, candidate?.finishReason)) {
           const contRes = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -368,7 +380,7 @@ export default async function handler(req, res) {
                   ],
                 },
               ],
-              generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+              generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
             }),
           });
 

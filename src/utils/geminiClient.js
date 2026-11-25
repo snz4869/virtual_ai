@@ -36,6 +36,18 @@ function isAbortError(err) {
   return err?.name === 'AbortError' || err?.message === 'ABORTED';
 }
 
+const GEMINI_MAX_OUTPUT_TOKENS = 32768;
+
+function isTextTruncated(text, finishReason = '') {
+  if (finishReason === 'MAX_TOKENS') return true;
+  const trimmed = (text || '').trim();
+  if (!trimmed) return false;
+  const fences = trimmed.match(/```/g);
+  if (fences && fences.length % 2 === 1) return true;
+  if (/(<!doctype\s+html|<html[\s>])/i.test(trimmed) && !/<\/html\s*>/i.test(trimmed)) return true;
+  return false;
+}
+
 function buildPromptWithAttachment(userPrompt, fileData, { forDeepSeek = false } = {}) {
   if (!fileData) return userPrompt;
 
@@ -318,7 +330,7 @@ async function callGeminiDirect({
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: 'user', parts: userParts }],
-          generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+          generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
         }),
       });
 
@@ -342,7 +354,7 @@ async function callGeminiDirect({
           signal
         );
 
-        if (finalText && finishReason === 'MAX_TOKENS') {
+        if (finalText && isTextTruncated(finalText, finishReason)) {
           const contRes = await fetch(streamUrl, {
             method: 'POST',
             signal,
@@ -361,7 +373,7 @@ async function callGeminiDirect({
                   ],
                 },
               ],
-              generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+              generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
             }),
           });
           if (contRes.ok && contRes.body) {
@@ -413,7 +425,7 @@ async function callGeminiDirect({
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [{ role: 'user', parts: userParts }],
-        generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+        generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
       }),
     });
 
@@ -423,7 +435,7 @@ async function callGeminiDirect({
       let finalText = candidate?.content?.parts?.map((p) => p.text || '').join('') || '';
       let usage = normalizeGeminiUsage(gData?.usageMetadata);
 
-      if (finalText && candidate?.finishReason === 'MAX_TOKENS') {
+      if (finalText && isTextTruncated(finalText, candidate?.finishReason)) {
         const contRes = await fetch(geminiUrl, {
           method: 'POST',
           signal,
@@ -442,7 +454,7 @@ async function callGeminiDirect({
                 ],
               },
             ],
-            generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+            generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.4 },
           }),
         });
         if (contRes.ok) {
@@ -617,8 +629,9 @@ SOP Kamu: ${sop}
 Project Brief Kantor:
 ${projectBrief}`;
 
-  // Ambil maks 12 log terakhir dari sesi aktif agar konteks tidak membengkak
-  const trimmedLogs = recentLogs.slice(-12);
+  // Untuk AGY lokal izinkan jendela konteks jauh lebih besar (hingga 24 log); cloud 12 log
+  const maxContextLogs = effectiveProvider === 'agy' ? 24 : 12;
+  const trimmedLogs = recentLogs.slice(-maxContextLogs);
   const previousContext = trimmedLogs
     .map((l) => `[${l.agentName || 'Anggota'}]: ${l.content}`)
     .join('\n\n');

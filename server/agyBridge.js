@@ -15,7 +15,10 @@ const FALLBACK_AGY_MODELS = [
 let cachedStatus = null;
 let cachedAt = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const MAX_PROMPT_CHARS = 26000;
+
+// Lewat stdin stream-json tidak lagi dibatasi 32KB argumen CLI Windows -> dukung hingga 320.000 karakter (~80rb+ token)
+const MAX_PROMPT_CHARS = 320000;
+const MAX_AUTO_CONTINUE_TURNS = 2;
 
 function getIsolatedSandboxDir() {
   const dir = path.join(os.tmpdir(), 'virtual-office-agy-sandbox');
@@ -53,7 +56,6 @@ function probeAgyModels() {
       try {
         child.kill();
       } catch {}
-      // Jika binary ditemukan tapi list models lambat, tetap tandai available dengan daftar default
       finish({ available: true, models: FALLBACK_AGY_MODELS });
     }, 6500);
 
@@ -104,7 +106,7 @@ function readJsonBody(req) {
     let raw = '';
     req.on('data', (chunk) => {
       raw += chunk.toString('utf8');
-      if (raw.length > 8 * 1024 * 1024) {
+      if (raw.length > 12 * 1024 * 1024) {
         reject(new Error('Payload terlalu besar.'));
       }
     });
@@ -128,7 +130,7 @@ function buildAgyCombinedPrompt({ systemPrompt, userPrompt, fileData }) {
   }
 
   const combined =
-    `[INSTRUKSI SISTEM VIRTUAL OFFICE — JAWAB LANGSUNG DALAM TEKS/MARKDOWN TANPA MEMANGGIL TOOL FILE/TERMINAL/BROWSER]\n` +
+    `[INSTRUKSI SISTEM VIRTUAL OFFICE — JAWAB LANGSUNG SECARA LENGKAP & UTUH DALAM TEKS/MARKDOWN TANPA MEMANGGIL TOOL FILE/TERMINAL/BROWSER. JANGAN MEMOTONG KODE ATAU MENGGUNAKAN PLACEHOLDER.]\n` +
     `${systemPrompt || ''}\n\n` +
     `---\n` +
     `${userPrompt || ''}${attachmentSection}`;
@@ -136,6 +138,31 @@ function buildAgyCombinedPrompt({ systemPrompt, userPrompt, fileData }) {
   return combined.length > MAX_PROMPT_CHARS
     ? combined.slice(0, MAX_PROMPT_CHARS)
     : combined;
+}
+
+/**
+ * Deteksi apakah output model terpotong di tengah jalan (batas token / blok kode belum ditutup / HTML belum ditutup).
+ */
+export function isOutputTruncated(text, finishedReason = '') {
+  const reason = String(finishedReason || '').toLowerCase();
+  if (reason.includes('max_tokens') || reason === 'length') {
+    return true;
+  }
+  const trimmed = (text || '').trim();
+  if (!trimmed) return false;
+
+  // 1. Cek jumlah pembuka/penutup fenced code block (```) ganjil -> masih terbuka
+  const fenceMatches = trimmed.match(/```/g);
+  if (fenceMatches && fenceMatches.length % 2 === 1) {
+    return true;
+  }
+
+  // 2. Cek dokumen HTML lengkap yang belum memiliki tag penutup </html>
+  if (/(<!doctype\s+html|<html[\s>])/i.test(trimmed) && !/<\/html\s*>/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
 }
 
 export function normalizeAgyEventLine(line) {
@@ -169,6 +196,7 @@ export function normalizeAgyEventLine(line) {
         type: 'result',
         status: r.status,
         response: r.response || '',
+        finishedReason: r.finished_reason || '',
         error: r.error || null,
         usage: r.usage
           ? {
@@ -185,12 +213,21 @@ export function normalizeAgyEventLine(line) {
   return null;
 }
 
+function sendStdinUserTurn(child, content) {
+  if (!child.stdin || child.stdin.destroyed || !child.stdin.writable) return false;
+  const line = JSON.stringify({
+    event: 'user',
+    message: { content },
+  });
+  child.stdin.write(`${line}\n`);
+  return true;
+}
+
 function attachAgyMiddleware(middlewares) {
   middlewares.use(async (req, res, next) => {
     const url = (req.url || '').split('?')[0];
 
     if (url === '/api/agy/status' && req.method === 'GET') {
-      // Pastikan hanya dijalankan di non-serverless lokal
       if (process.env.VERCEL) {
         res.statusCode = 404;
         res.setHeader('Content-Type', 'application/json');
@@ -231,18 +268,27 @@ function attachAgyMiddleware(middlewares) {
       } = body;
 
       const fullPrompt = buildAgyCombinedPrompt({ systemPrompt, userPrompt, fileData });
-      const args = ['--disable-slash-commands', '--output-format', 'stream-json'];
+
+      // Gunakan --input-format stream-json lewat stdin:
+      // 1) Tidak kena batas panjang argumen CLI Windows (mendukung konteks besar hingga ratusan ribu karakter)
+      // 2) Mendukung multi-turn auto-continue instan dalam 1 proses hangat jika output terpotong!
+      const args = [
+        '--disable-slash-commands',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+      ];
       if (model && model !== 'auto' && model !== 'default') {
         args.push('--model', model);
       }
-      args.push('-p', fullPrompt);
 
       const sandboxDir = getIsolatedSandboxDir();
       let child;
       try {
         child = spawn('agy', args, {
           cwd: sandboxDir,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
       } catch (err) {
@@ -276,9 +322,63 @@ function attachAgyMiddleware(middlewares) {
 
       let buffer = '';
       let fullText = '';
+      let turnText = '';
+      let continuationCount = 0;
       let resolvedModel = model && model !== 'default' ? model : 'agy-local';
       let finalUsage = null;
+      let resultError = null;
       let stderrBuf = '';
+
+      const handleParsedEvent = (evt) => {
+        if (!evt) return;
+        if (evt.type === 'init' && evt.model) {
+          resolvedModel = evt.model;
+          return;
+        }
+        if (evt.type === 'delta') {
+          if (evt.text) {
+            turnText += evt.text;
+            fullText += evt.text;
+            writeSSE({ type: 'delta', text: evt.text });
+          }
+          if (evt.usage) finalUsage = evt.usage;
+          return;
+        }
+        if (evt.type === 'result') {
+          if (evt.status === 'ERROR' && evt.error) {
+            resultError = evt.error;
+          }
+          if (!turnText && evt.response) {
+            turnText = evt.response;
+            fullText += evt.response;
+            writeSSE({ type: 'delta', text: evt.response });
+          }
+          if (evt.usage) finalUsage = evt.usage;
+
+          // Cek apakah respons terpotong dan masih punya jatah auto-continue
+          if (
+            !resultError &&
+            continuationCount < MAX_AUTO_CONTINUE_TURNS &&
+            isOutputTruncated(fullText, evt.finishedReason)
+          ) {
+            continuationCount += 1;
+            turnText = '';
+            const sent = sendStdinUserTurn(
+              child,
+              'Lanjutkan persis dari karakter terakhir yang terpotong hingga seluruh kode/dokumen tertutup lengkap sampai akhir (termasuk penutup seperti </html> atau ```) tanpa mengulang bagian sebelumnya dan tanpa penjelasan tambahan.'
+            );
+            if (sent) return;
+          }
+
+          // Selesai penuh -> tutup stdin agar proses agy keluar dengan bersih
+          try {
+            child.stdin.end();
+          } catch {}
+        }
+      };
+
+      // Kirim prompt utama ke stdin
+      sendStdinUserTurn(child, fullPrompt);
 
       child.stdout.on('data', (chunk) => {
         buffer += chunk.toString('utf8');
@@ -286,23 +386,7 @@ function attachAgyMiddleware(middlewares) {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          const evt = normalizeAgyEventLine(line);
-          if (!evt) continue;
-          if (evt.type === 'init' && evt.model) {
-            resolvedModel = evt.model;
-          } else if (evt.type === 'delta') {
-            if (evt.text) {
-              fullText += evt.text;
-              writeSSE({ type: 'delta', text: evt.text });
-            }
-            if (evt.usage) finalUsage = evt.usage;
-          } else if (evt.type === 'result') {
-            if (!fullText && evt.response) {
-              fullText = evt.response;
-              writeSSE({ type: 'delta', text: evt.response });
-            }
-            if (evt.usage) finalUsage = evt.usage;
-          }
+          handleParsedEvent(normalizeAgyEventLine(line));
         }
       });
 
@@ -325,19 +409,16 @@ function attachAgyMiddleware(middlewares) {
       child.on('close', (code) => {
         if (clientClosed) return;
 
-        // Proses sisa buffer terakhir jika ada
         if (buffer.trim()) {
-          const evt = normalizeAgyEventLine(buffer);
-          if (evt?.type === 'result' && !fullText && evt.response) {
-            fullText = evt.response;
-            writeSSE({ type: 'delta', text: evt.response });
-          }
+          handleParsedEvent(normalizeAgyEventLine(buffer));
         }
 
         const trimmedText = fullText.trim();
         if (!trimmedText) {
           const errMsg =
-            stderrBuf.trim() || `AGY selesai tanpa respons teks (exit code ${code}).`;
+            resultError ||
+            stderrBuf.trim() ||
+            `AGY selesai tanpa respons teks (exit code ${code}).`;
           if (stream) {
             writeSSE({ type: 'error', error: errMsg });
             res.end();

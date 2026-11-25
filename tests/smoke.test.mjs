@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import handler from '../api/interact.js';
-import { normalizeAgyEventLine } from '../server/agyBridge.js';
+import { isOutputTruncated, normalizeAgyEventLine } from '../server/agyBridge.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
 import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, EXTRA_AGENT_SLOTS, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
 import { buildOfficePath, isFootBlocked } from '../src/utils/pathfinding.js';
@@ -168,6 +168,12 @@ const deltaEvt = normalizeAgyEventLine('{"event":"step_update","step_update":{"s
 assert.equal(deltaEvt.type, 'delta');
 assert.equal(deltaEvt.text, 'Halo AGY');
 assert.equal(deltaEvt.usage.totalTokens, 7);
+
+// Truncation detection (unclosed code fence, unclosed </html>, finishedReason=max_tokens)
+assert.equal(isOutputTruncated('```html\n<!DOCTYPE html><html><body>Hi'), true, 'Unclosed code fence & HTML must be flagged truncated');
+assert.equal(isOutputTruncated('<!DOCTYPE html><html><body>Hi</body>', ''), true, 'Missing </html> must be flagged truncated');
+assert.equal(isOutputTruncated('Hasil selesai', 'max_tokens'), true, 'max_tokens reason must be flagged truncated');
+assert.equal(isOutputTruncated('```html\n<!DOCTYPE html><html><body>Hi</body></html>\n```', 'stop'), false, 'Complete HTML block must not be flagged truncated');
 
 // 6a. Local AGY streaming call (agyAvailable = true)
 let agyRouteHit = false;

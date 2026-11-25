@@ -8,6 +8,31 @@ function isAbortErr(err) {
   return err?.name === 'AbortError' || err?.message === 'ABORTED';
 }
 
+/**
+ * Menyaring log konteks saat siklus revisi agar agen fokus pada instruksi asli,
+ * rencana arsitektur Alex, kontribusi spesialis, serta HANYA draf & audit QA terbaru
+ * (mencegah draf gagal lama menghabiskan kuota token & membingungkan revisi).
+ */
+function buildFocusedRelayLogs(allSessionLogs, turnStartIdx, rakaId, nadiaId) {
+  const priorHistory = allSessionLogs.slice(0, turnStartIdx).slice(-4);
+  const currentTurnLogs = allSessionLogs.slice(turnStartIdx);
+
+  let lastRakaIdx = -1;
+  let lastNadiaIdx = -1;
+  currentTurnLogs.forEach((entry, idx) => {
+    if (entry.agentId === rakaId) lastRakaIdx = idx;
+    if (entry.agentId === nadiaId) lastNadiaIdx = idx;
+  });
+
+  const filteredTurn = currentTurnLogs.filter((entry, idx) => {
+    if (entry.agentId === rakaId) return idx === lastRakaIdx;
+    if (entry.agentId === nadiaId) return idx === lastNadiaIdx;
+    return true;
+  });
+
+  return [...priorHistory, ...filteredTurn];
+}
+
 export function useOfficeRelay({
   directorRef,
   npcRef,
@@ -415,6 +440,7 @@ export function useOfficeRelay({
     );
     setPromptInput('');
 
+    const turnStartIdx = logs.length;
     const currentLogs = [...logs, directorEntry];
     const alex = agents.find((a) => a.id === 'alex') || agents[0];
     const raka = agents.find((a) => a.id === 'raka') || agents[1];
@@ -536,10 +562,11 @@ export function useOfficeRelay({
 
       while (attempt <= maxRevisions && !isApproved) {
         const isRevision = attempt > 0;
+        const isFinalRevision = isRevision && attempt === maxRevisions;
 
         setPipelineStatus(
           isRevision
-            ? `Revisi #${attempt}/${maxRevisions}: ${raka.name} memperbaiki hasil...`
+            ? `Revisi #${attempt}/${maxRevisions}: ${raka.name} ${isFinalRevision ? 'mengunci fitur utama' : 'memperbaiki hasil'}...`
             : `2/3: ${raka.name} menuju Engineering Pod...`
         );
 
@@ -549,7 +576,11 @@ export function useOfficeRelay({
           {
             bubble: isRevision ? `🔧 Revisi #${attempt}...` : 'Menuju meja...',
             endState: 'WORKING',
-            endBubble: isRevision ? `🛠️ Perbaikan #${attempt}...` : '💻 Eksekusi solusi...',
+            endBubble: isFinalRevision
+              ? '🎯 Finalisasi fitur inti...'
+              : isRevision
+                ? `🛠️ Perbaikan #${attempt}...`
+                : '💻 Eksekusi solusi...',
             endFacing: 'up',
           },
           controller.signal
@@ -560,16 +591,29 @@ export function useOfficeRelay({
           await abortableSleep(3000, controller.signal);
         }
 
-        const rakaPrompt = isRevision
-          ? `${taskPrompt}\n\n[INSTRUKSI REVISI #${attempt} DARI QA (${nadia.name})]:\nHasil kerja Anda sebelumnya belum lulus audit QA. Perbaiki seluruh temuan/kekurangan di bawah ini secara tuntas tanpa mengulang kesalahan lama:\n\n${lastNadiaFeedback}`
-          : taskPrompt;
+        const rakaPrompt = !isRevision
+          ? taskPrompt
+          : isFinalRevision
+            ? `${taskPrompt}\n\n[PRIORITAS REVISI TERAKHIR #${attempt}/${maxRevisions} — KUNCI FITUR UTAMA DARI QA (${nadia.name})]:\nIni adalah kesempatan revisi terakhir. Pastikan 100% FITUR PENTING / INTI dari Perintah Director sudah benar, berfungsi baik, bebas bug logika, dan kode/dokumen TERTULIS LENGKAP UTUH sampai penutup akhir tanpa terpotong atau placeholder. Jika ada detail kosmetik sekunder yang berisiko merusak fitur utama atau memotong kode, sederhanakan bagian sekunder tersebut agar hasil akhir benar-benar solid dan siap pakai.\n\nTemuan QA yang wajib dibereskan:\n${lastNadiaFeedback}`
+            : `${taskPrompt}\n\n[INSTRUKSI REVISI #${attempt}/${maxRevisions} DARI QA (${nadia.name})]:\nPerbaiki seluruh temuan fitur inti & bug di bawah ini secara tuntas dan pastikan output lengkap utuh dari awal sampai akhir:\n\n${lastNadiaFeedback}`;
+
+        const focusedLogsForRaka = buildFocusedRelayLogs(
+          currentLogs,
+          turnStartIdx,
+          raka.id,
+          nadia.id
+        );
 
         const { logEntry: rakaLog } = await runStreamingAgentCall({
           sessionId: runSessionId,
           agent: raka,
-          roleLabel: isRevision ? `${raka.role} • Revisi #${attempt}` : raka.role,
+          roleLabel: isFinalRevision
+            ? `${raka.role} • Finalisasi #${attempt}`
+            : isRevision
+              ? `${raka.role} • Revisi #${attempt}`
+              : raka.role,
           prompt: rakaPrompt,
-          recentLogs: currentLogs,
+          recentLogs: focusedLogsForRaka,
           attachedFileData,
           signal: controller.signal,
         });
@@ -598,7 +642,7 @@ export function useOfficeRelay({
 
         setPipelineStatus(
           isRevision
-            ? `Audit Ulang #${attempt}: ${nadia.name} memeriksa perbaikan...`
+            ? `Audit Ulang #${attempt}: ${nadia.name} memeriksa kelayakan fitur utama...`
             : `3/3: ${nadia.name} menuju QA & Review Lab...`
         );
 
@@ -622,21 +666,30 @@ export function useOfficeRelay({
         const nadiaAgentWithStatusRule = {
           ...nadia,
           sop: `${nadia.sop}\n\nATURAN OUTPUT WAJIB QA:
-1. Periksa hasil kerja terakhir ${raka.name} secara kritis terhadap Perintah Director.
-2. Jika hasil sudah akurat, lengkap, dan bebas bug/kesalahan logika, akhiri respons Anda dengan label persis: [STATUS: VERIFIED]
-3. Jika masih ada kekurangan, bug, atau syarat yang belum terpenuhi (dan percobaan saat ini belum mencapai batas), tuliskan daftar perbaikan spesifik yang harus dilakukan ${raka.name}, lalu akhiri respons dengan label persis: [STATUS: REVISED]`,
+1. Periksa hasil kerja terakhir ${raka.name} terhadap Perintah Director dengan memisahkan antara FITUR PENTING/INTI (kebenaran logika, syarat utama, kode utuh tidak terpotong) dan detail kosmetik minor.
+2. Jika seluruh fitur penting sudah benar, utuh, dan layak pakai, akhiri respons Anda dengan label persis: [STATUS: VERIFIED] (saran kosmetik minor boleh ditulis singkat tanpa menggagalkan status).
+3. Jika masih ada kekurangan pada FITUR PENTING, bug fungsional, atau output terpotong, tuliskan poin perbaikan inti yang jelas dan fokus untuk ${raka.name}, lalu akhiri respons dengan label persis: [STATUS: REVISED]`,
         };
 
-        const nadiaPrompt = isRevision
-          ? `${taskPrompt}\n\n[AUDIT ULANG REVISI #${attempt}]: Periksa apakah ${raka.name} sudah memperbaiki semua catatan revisi sebelumnya. Akhiri dengan [STATUS: VERIFIED] jika lulus, atau [STATUS: REVISED] jika masih gagal.`
-          : `${taskPrompt}\n\nLakukan audit QA pada hasil kerja ${raka.name}. Akhiri dengan [STATUS: VERIFIED] jika lulus, atau [STATUS: REVISED] beserta poin koreksi jika gagal.`;
+        const nadiaPrompt = isFinalRevision
+          ? `${taskPrompt}\n\n[AUDIT AKHIR PASCA REVISI MAKSIMAL #${attempt}/${maxRevisions}]: Verifikasi apakah seluruh FITUR PENTING / UTAMA pada hasil terakhir ${raka.name} sudah benar, utuh (tidak terpotong), dan layak digunakan Director. Jika fitur utama sudah oke dan berfungsi baik meskipun ada catatan estetika minor, luluskan dengan [STATUS: VERIFIED]. Hanya berikan [STATUS: REVISED] jika fitur utama benar-benar salah fatal atau terpotong.`
+          : isRevision
+            ? `${taskPrompt}\n\n[AUDIT ULANG REVISI #${attempt}/${maxRevisions}]: Periksa apakah ${raka.name} sudah menuntaskan perbaikan fitur inti sebelumnya. Jika masih perlu revisi berikutnya, berikan daftar perbaikan prioritas utama yang paling krusial agar tuntas pada revisi terakhir. Akhiri dengan [STATUS: VERIFIED] atau [STATUS: REVISED].`
+            : `${taskPrompt}\n\nLakukan audit QA pada hasil kerja ${raka.name} dengan fokus pada fitur penting, kebenaran logika, dan kelengkapan kode utuh. Akhiri dengan [STATUS: VERIFIED] jika lulus, atau [STATUS: REVISED] beserta daftar perbaikan fitur inti yang harus diprioritaskan jika gagal.`;
+
+        const focusedLogsForNadia = buildFocusedRelayLogs(
+          currentLogs,
+          turnStartIdx,
+          raka.id,
+          nadia.id
+        );
 
         const { result: nadiaRes, logEntry: nadiaLog } = await runStreamingAgentCall({
           sessionId: runSessionId,
           agent: nadiaAgentWithStatusRule,
           roleLabel: `${nadia.role} • Mengaudit...`,
           prompt: nadiaPrompt,
-          recentLogs: currentLogs,
+          recentLogs: focusedLogsForNadia,
           attachedFileData,
           signal: controller.signal,
         });
