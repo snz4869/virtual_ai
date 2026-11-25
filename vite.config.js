@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { agyLocalPlugin } from './server/agyBridge.js';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), agyLocalPlugin()],
   server: {
-    port: 3000
-  }
+    port: 3000,
+  },
 });

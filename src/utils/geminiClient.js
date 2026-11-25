@@ -476,6 +476,69 @@ async function callGeminiDirect({
   throw new Error(lastError || 'Semua model Gemini gagal merespons.');
 }
 
+async function callAgyLocal({
+  agyModel,
+  systemPrompt,
+  userPrompt,
+  fileData,
+  signal,
+  onChunk,
+}) {
+  const useStream = Boolean(onChunk);
+  const res = await fetch('/api/agy/interact', {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: agyModel || 'default',
+      stream: useStream,
+      systemPrompt,
+      userPrompt,
+      fileData,
+    }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `AGY Local Error ${res.status}`);
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (useStream && contentType.includes('text/event-stream') && res.body) {
+    let fullText = '';
+    let modelUsed = agyModel && agyModel !== 'default' ? `agy:${agyModel}` : 'agy:local';
+    let usage = null;
+    let streamError = null;
+
+    await consumeSSEStream(
+      res.body,
+      (evt) => {
+        if (evt.type === 'delta' && evt.text) {
+          fullText += evt.text;
+          onChunk(fullText.trimStart(), evt.text);
+        } else if (evt.type === 'done') {
+          if (evt.modelUsed) modelUsed = evt.modelUsed;
+          if (evt.usage) usage = evt.usage;
+        } else if (evt.type === 'error') {
+          streamError = evt.error;
+        }
+      },
+      signal
+    );
+
+    if (streamError) throw new Error(streamError);
+    return { text: fullText.trim(), modelUsed, usage };
+  }
+
+  const data = await res.json();
+  if (onChunk && data.text) onChunk(data.text, data.text);
+  return {
+    text: (data.text || '').trim(),
+    modelUsed: data.modelUsed || 'agy:local',
+    usage: data.usage || null,
+  };
+}
+
 export async function executeAgentPrompt({
   agent,
   prompt,
@@ -486,6 +549,8 @@ export async function executeAgentPrompt({
   simSpeed = 1,
   provider = 'auto',
   deepseekApiKey = '',
+  agyAvailable = false,
+  agyModel = 'default',
   fileData = null,
   preferredModel = 'auto',
   signal = null,
@@ -499,14 +564,26 @@ export async function executeAgentPrompt({
   const taskInput = prompt || '';
   const apiKey = clientApiKey?.trim() || '';
   const dsKey = deepseekApiKey?.trim() || '';
-  const modelPref = preferredModel || agent?.preferredModel || 'auto';
+  const rawModelPref = preferredModel || agent?.preferredModel || 'auto';
 
-  const effectiveProvider =
-    modelPref === 'deepseek-chat'
+  // Jika di Vercel (agyAvailable === false), abaikan preferensi model/provider AGY
+  const isAgentAgyPref = rawModelPref.startsWith('agy:');
+  const modelPref = isAgentAgyPref && !agyAvailable ? 'auto' : rawModelPref;
+  const safeProvider = provider === 'agy' && !agyAvailable ? 'auto' : provider;
+
+  const shouldUseAgy =
+    agyAvailable &&
+    (isAgentAgyPref ||
+      safeProvider === 'agy' ||
+      (safeProvider === 'auto' && !apiKey && !dsKey));
+
+  const effectiveProvider = shouldUseAgy
+    ? 'agy'
+    : modelPref === 'deepseek-chat'
       ? 'deepseek'
       : modelPref !== 'auto' && modelPref.startsWith('gemini-')
         ? 'gemini'
-        : provider;
+        : safeProvider;
 
   if (apiMode === 'demo') {
     const fullDemo = buildDemoResponse({ agent, taskInput, fileData });
@@ -549,6 +626,25 @@ ${projectBrief}`;
   const userPrompt = previousContext
     ? `Instruksi Director:\n${taskInput}\n\nHasil Kerja Tim Sebelumnya:\n${previousContext}\n\nLanjutkan bagianmu secara ringkas, akurat, dan sesuai SOP.`
     : `Instruksi Director:\n${taskInput}\n\nKerjakan bagianmu sesuai SOP.`;
+
+  // 0. Jalur khusus AGY Local CLI (hanya aktif saat running lokal & agy terdeteksi)
+  if (effectiveProvider === 'agy') {
+    const selectedAgyModel = isAgentAgyPref ? rawModelPref.slice(4) : agyModel || 'default';
+    const agyRes = await callAgyLocal({
+      agyModel: selectedAgyModel,
+      systemPrompt,
+      userPrompt,
+      fileData,
+      signal,
+      onChunk,
+    });
+    return {
+      text: agyRes.text,
+      modelUsed: agyRes.modelUsed,
+      durationMs: Math.round(performance.now() - startedAt),
+      usage: agyRes.usage || null,
+    };
+  }
 
   // 1. Coba lewat Vercel Serverless Route (/api/interact)
   const useStream = Boolean(onChunk);

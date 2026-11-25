@@ -59,6 +59,12 @@ export function useOfficeState() {
   const initialSession = useRef(createSession('Sesi 1')).current;
 
   const [aiProvider, setAiProvider] = useState('auto');
+  const [agyModel, setAgyModel] = useState('gemini-3.8-flash-medium');
+  const [agyStatus, setAgyStatus] = useState({
+    checked: false,
+    available: false,
+    models: [],
+  });
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [deepseekApiKey, setDeepseekApiKey] = useState('');
   const [rememberKeys, setRememberKeys] = useState(false);
@@ -124,6 +130,7 @@ export function useOfficeState() {
         if (saved.projectBrief) setProjectBrief(saved.projectBrief);
         if (saved.apiMode) setApiMode(saved.apiMode);
         if (saved.aiProvider) setAiProvider(saved.aiProvider);
+        if (saved.agyModel) setAgyModel(saved.agyModel);
         if (typeof saved.maxRevisions === 'number') {
           setMaxRevisions(Math.max(0, Math.min(3, saved.maxRevisions)));
         }
@@ -200,6 +207,49 @@ export function useOfficeState() {
     }
   }, []);
 
+  // Deteksi runtime lokal AGY (otomatis aktif di lokal, otomatis nonaktif di Vercel)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/agy/status');
+        const ct = res.headers.get('content-type') || '';
+        if (!res.ok || !ct.includes('application/json')) {
+          throw new Error('Not local AGY');
+        }
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data?.available) {
+          setAgyStatus({
+            checked: true,
+            available: true,
+            models: Array.isArray(data.models) ? data.models : [],
+          });
+          // Saat running lokal & belum ada preferensi cloud manual, langsung sambungkan ke AGY
+          const savedRaw = localStorage.getItem(STORAGE_KEY);
+          const saved = savedRaw ? JSON.parse(savedRaw) : null;
+          if (!saved || !saved.aiProvider || saved.aiProvider === 'agy' || saved.apiMode === 'demo') {
+            setApiMode('live');
+            setAiProvider('agy');
+          }
+        } else {
+          setAgyStatus({ checked: true, available: false, models: [] });
+          setAiProvider((prev) => (prev === 'agy' ? 'auto' : prev));
+        }
+      } catch {
+        if (!cancelled) {
+          // Di Vercel / produksi tanpa server lokal Vite -> fitur AGY otomatis disable
+          setAgyStatus({ checked: true, available: false, models: [] });
+          setAiProvider((prev) => (prev === 'agy' ? 'auto' : prev));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Persist state — API key hanya masuk localStorage jika rememberKeys === true
   useEffect(() => {
     if (!hydrated) return;
@@ -210,6 +260,7 @@ export function useOfficeState() {
           projectBrief,
           apiMode,
           aiProvider,
+          agyModel,
           rememberKeys,
           geminiApiKey: rememberKeys ? geminiApiKey : '',
           deepseekApiKey: rememberKeys ? deepseekApiKey : '',
@@ -238,6 +289,7 @@ export function useOfficeState() {
     projectBrief,
     apiMode,
     aiProvider,
+    agyModel,
     rememberKeys,
     geminiApiKey,
     deepseekApiKey,
@@ -308,6 +360,9 @@ export function useOfficeState() {
   return {
     aiProvider,
     setAiProvider,
+    agyModel,
+    setAgyModel,
+    agyStatus,
     geminiApiKey,
     setGeminiApiKey,
     deepseekApiKey,

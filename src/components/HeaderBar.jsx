@@ -9,11 +9,14 @@ export default function HeaderBar({
   fxEnabled,
   onToggleFx,
   apiMode,
+  aiProvider,
+  agyAvailable,
   onOpenSettings,
   onOpenTeamModal,
   onExportMarkdown,
   onResetOffice,
 }) {
+  const isAgyActive = apiMode === 'live' && agyAvailable && aiProvider === 'agy';
   return (
     <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 z-20">
       <div className="flex items-center gap-3">
@@ -70,15 +73,25 @@ export default function HeaderBar({
         <button
           onClick={onOpenSettings}
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border ${
-            apiMode === 'live'
-              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-              : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+            isAgyActive
+              ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+              : apiMode === 'live'
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
           }`}
         >
           <span
-            className={`w-2 h-2 rounded-full ${apiMode === 'live' ? 'bg-emerald-400' : 'bg-amber-400'}`}
+            className={`w-2 h-2 rounded-full ${
+              isAgyActive ? 'bg-cyan-400' : apiMode === 'live' ? 'bg-emerald-400' : 'bg-amber-400'
+            }`}
           />
-          <span>{apiMode === 'live' ? 'Live: Streaming API' : 'Demo Mode'}</span>
+          <span>
+            {isAgyActive
+              ? 'Live: AGY Local'
+              : apiMode === 'live'
+                ? 'Live: Streaming API'
+                : 'Demo Mode'}
+          </span>
         </button>
       </div>
 

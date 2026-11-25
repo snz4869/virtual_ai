@@ -92,6 +92,8 @@ export default function App() {
     projectBrief: office.projectBrief,
     apiMode: office.apiMode,
     aiProvider: office.aiProvider,
+    agyStatus: office.agyStatus,
+    agyModel: office.agyModel,
     geminiApiKey: office.geminiApiKey,
     deepseekApiKey: office.deepseekApiKey,
     simSpeed,
@@ -240,6 +242,8 @@ export default function App() {
         fxEnabled={fxEnabled}
         onToggleFx={() => setFxEnabled((v) => !v)}
         apiMode={office.apiMode}
+        aiProvider={office.aiProvider}
+        agyAvailable={office.agyStatus.available}
         onOpenSettings={() => setActiveModal('settings')}
         onOpenTeamModal={() => setActiveModal('sop')}
         onExportMarkdown={exportMarkdown}
@@ -315,6 +319,8 @@ export default function App() {
           initialBrief={office.projectBrief}
           initialMode={office.apiMode}
           initialProvider={office.aiProvider}
+          initialAgyModel={office.agyModel}
+          agyStatus={office.agyStatus}
           initialGeminiKey={office.geminiApiKey}
           initialDeepseekKey={office.deepseekApiKey}
           initialMaxRevisions={office.maxRevisions}
@@ -324,6 +330,7 @@ export default function App() {
             office.setProjectBrief(cfg.projectBrief);
             office.setApiMode(cfg.apiMode);
             office.setAiProvider(cfg.aiProvider);
+            office.setAgyModel(cfg.agyModel);
             office.setGeminiApiKey(cfg.geminiApiKey);
             office.setDeepseekApiKey(cfg.deepseekApiKey);
             office.setMaxRevisions(cfg.maxRevisions);
@@ -337,6 +344,7 @@ export default function App() {
       {activeModal === 'sop' && (
         <TeamSopModal
           initialAgents={office.agents}
+          agyStatus={office.agyStatus}
           onClose={() => setActiveModal(null)}
           onNotify={showToast}
           onSave={(nextAgents) => {

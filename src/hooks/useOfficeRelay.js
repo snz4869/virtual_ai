@@ -18,6 +18,8 @@ export function useOfficeRelay({
   projectBrief,
   apiMode,
   aiProvider,
+  agyStatus,
+  agyModel,
   geminiApiKey,
   deepseekApiKey,
   simSpeed,
@@ -217,6 +219,7 @@ export function useOfficeRelay({
     });
 
     let latestPartial = '';
+
     try {
       const result = await executeAgentPrompt({
         agent,
@@ -228,6 +231,8 @@ export function useOfficeRelay({
         simSpeed,
         provider: aiProvider,
         deepseekApiKey,
+        agyAvailable: Boolean(agyStatus?.available),
+        agyModel,
         fileData: attachedFileData,
         preferredModel: agent.preferredModel || 'auto',
         signal,
@@ -417,6 +422,10 @@ export function useOfficeRelay({
     const specialists = agents.filter((a) => !CORE_AGENT_IDS.includes(a.id));
     const attachedFileData = filePayload || null;
 
+    const isUsingLocalAgy =
+      Boolean(agyStatus?.available) &&
+      (aiProvider === 'agy' || (aiProvider === 'auto' && !geminiApiKey && !deepseekApiKey));
+
     try {
       // 1. ALEX (Tech Lead)
       setPipelineStatus(`1/3: ${alex.name} menuju Tech Lead Room...`);
@@ -482,7 +491,7 @@ export function useOfficeRelay({
           controller.signal
         );
 
-        if (apiMode === 'live') {
+        if (apiMode === 'live' && !isUsingLocalAgy) {
           setPipelineStatus(`Cooldown API 3 detik sebelum ${spec.name} bekerja...`);
           await abortableSleep(3000, controller.signal);
         }
@@ -546,7 +555,7 @@ export function useOfficeRelay({
           controller.signal
         );
 
-        if (apiMode === 'live') {
+        if (apiMode === 'live' && !isUsingLocalAgy) {
           setPipelineStatus(`Cooldown API 3 detik sebelum ${raka.name} bekerja...`);
           await abortableSleep(3000, controller.signal);
         }
@@ -605,7 +614,7 @@ export function useOfficeRelay({
           controller.signal
         );
 
-        if (apiMode === 'live') {
+        if (apiMode === 'live' && !isUsingLocalAgy) {
           setPipelineStatus(`Cooldown API 3 detik sebelum ${nadia.name} mengaudit...`);
           await abortableSleep(3000, controller.signal);
         }

@@ -9,8 +9,18 @@ import {
 
 const MAX_TOTAL_AGENTS = DEFAULT_AGENTS.length + EXTRA_AGENT_SLOTS.length;
 
-export default function TeamSopModal({ initialAgents, onClose, onSave, onNotify }) {
-  const [draftAgents, setDraftAgents] = useState(() => JSON.parse(JSON.stringify(initialAgents)));
+export default function TeamSopModal({ initialAgents, agyStatus, onClose, onSave, onNotify }) {
+  const agyAvailable = Boolean(agyStatus?.available);
+  const agyModels = Array.isArray(agyStatus?.models) ? agyStatus.models : [];
+  const [draftAgents, setDraftAgents] = useState(() =>
+    JSON.parse(JSON.stringify(initialAgents)).map((ag) => ({
+      ...ag,
+      preferredModel:
+        !agyAvailable && String(ag.preferredModel || '').startsWith('agy:')
+          ? 'auto'
+          : ag.preferredModel || 'auto',
+    }))
+  );
 
   const handleAddDraftAgent = () => {
     if (draftAgents.length >= MAX_TOTAL_AGENTS) {
@@ -123,6 +133,15 @@ export default function TeamSopModal({ initialAgents, onClose, onSave, onNotify 
                       {m.label}
                     </option>
                   ))}
+                  {agyAvailable && agyModels.length > 0 && (
+                    <optgroup label="AGY Local CLI (Hanya Lokal)">
+                      {agyModels.map((m) => (
+                        <option key={`agy:${m.id}`} value={`agy:${m.id}`}>
+                          AGY • {m.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
 

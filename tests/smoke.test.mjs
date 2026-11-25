@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import handler from '../api/interact.js';
+import { normalizeAgyEventLine } from '../server/agyBridge.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
 import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, EXTRA_AGENT_SLOTS, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
 import { buildOfficePath, isFootBlocked } from '../src/utils/pathfinding.js';
@@ -157,6 +158,74 @@ assert.match(capturedUrl, /gemini-3\.8-flash:streamGenerateContent\?alt=sse/);
 assert.equal(capturedBody.contents[0].parts[1].inlineData.mimeType, 'application/pdf');
 assert.equal(mockRes.ended, true);
 assert.ok(sseOut.join('').includes('"totalTokens":15'));
+
+// 6. AGY Local Bridge: event parsing, streaming when agyAvailable=true, and auto-disable when agyAvailable=false (Vercel)
+const initEvt = normalizeAgyEventLine('{"event":"init","init":{"model":"gemini-3.8-flash-medium"}}');
+assert.equal(initEvt.type, 'init');
+assert.equal(initEvt.model, 'gemini-3.8-flash-medium');
+
+const deltaEvt = normalizeAgyEventLine('{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"Halo AGY","usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}');
+assert.equal(deltaEvt.type, 'delta');
+assert.equal(deltaEvt.text, 'Halo AGY');
+assert.equal(deltaEvt.usage.totalTokens, 7);
+
+// 6a. Local AGY streaming call (agyAvailable = true)
+let agyRouteHit = false;
+globalThis.fetch = async (url) => {
+  if (url === '/api/agy/interact') {
+    agyRouteHit = true;
+    return {
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/event-stream; charset=utf-8' }),
+      body: makeStream([
+        'data: {"type":"delta","text":"Respons "}\n\n',
+        'data: {"type":"delta","text":"dari AGY!"}\n\n',
+        'data: {"type":"done","modelUsed":"agy:gemini-3.8-flash-medium","usage":{"promptTokens":10,"outputTokens":4,"totalTokens":14}}\n\n',
+      ]),
+    };
+  }
+  throw new Error(`Unexpected URL: ${url}`);
+};
+
+const agyChunks = [];
+const agyOut = await executeAgentPrompt({
+  agent: { id: 'alex', name: 'Alex', role: 'Lead', sop: 'sop' },
+  prompt: 'Tes AGY',
+  brief: 'Brief',
+  apiMode: 'live',
+  provider: 'agy',
+  agyAvailable: true,
+  agyModel: 'gemini-3.8-flash-medium',
+  onChunk: (p) => agyChunks.push(p),
+});
+assert.equal(agyRouteHit, true, 'Must route to /api/agy/interact when agyAvailable=true');
+assert.equal(agyOut.text, 'Respons dari AGY!');
+assert.equal(agyOut.modelUsed, 'agy:gemini-3.8-flash-medium');
+assert.equal(agyOut.usage.totalTokens, 14);
+
+// 6b. Vercel mode (agyAvailable = false): even if provider='agy' or preferredModel='agy:...', NEVER calls /api/agy/interact
+let vercelHitUrl = '';
+globalThis.fetch = async (url) => {
+  vercelHitUrl = url;
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => ({ text: 'FALLBACK_VERCEL_OK', modelUsed: 'gemini-3.5-flash-lite', usage: null }),
+  };
+};
+const vercelOut = await executeAgentPrompt({
+  agent: { id: 'raka', name: 'Raka', role: 'Dev', sop: 'sop', preferredModel: 'agy:gemini-4-neon-high' },
+  prompt: 'Tes Vercel',
+  brief: 'Brief',
+  apiMode: 'live',
+  provider: 'agy',
+  agyAvailable: false,
+  clientApiKey: 'cloud-key',
+});
+assert.equal(vercelHitUrl, '/api/interact', 'On Vercel (agyAvailable=false), must bypass AGY and use /api/interact');
+assert.equal(vercelOut.text, 'FALLBACK_VERCEL_OK');
 
 globalThis.fetch = origFetch;
 console.log('ALL_SMOKE_TESTS_PASSED');
