@@ -916,6 +916,22 @@ export default function OfficeCanvas2D({
             npc.facing = resolveFacing(dx, dy, npc.facing);
             npc.walkPhase = (npc.walkPhase || 0) + dt * 14;
           }
+        } else if (npc.state === 'MEETING' || npc.state === 'REPORTING') {
+          if (npc.meetingTimer > 0) {
+            npc.meetingTimer -= dt;
+            if (npc.meetingTimer <= 0) {
+              npc.meetingTimer = 0;
+              npc.state = 'IDLE';
+              npc.hasReportExclamation = false;
+              const leaveBubbles = ['🫡 Siap Bos!', '☕ Kembali santai', '👍 Rapat selesai'];
+              npc.statusBubble = leaveBubbles[Math.floor(Math.random() * leaveBubbles.length)];
+              npc.bubbleClearTimer = 2.2;
+              npc.roamCooldown = 4 + Math.random() * 4;
+              const returnSpot = npc.homeSpot || WAYPOINTS.loungeSofa;
+              npc.roamPath = buildOfficePath(npc.x, npc.y, returnSpot);
+              npc.pendingIdleBubble = '';
+            }
+          }
         } else if (npc.state === 'IDLE') {
           npc.roamCooldown = (npc.roamCooldown ?? 2.5 + Math.random() * 3.5) - dt;
           if (Array.isArray(npc.roamPath) && npc.roamPath.length > 0) {

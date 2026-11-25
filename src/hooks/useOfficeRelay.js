@@ -68,6 +68,7 @@ export function useOfficeRelay({
         npc.pathQueue = [];
         npc.onArriveCallback = null;
         npc.carryingDoc = false;
+        npc.meetingTimer = 0;
         npc.state = 'IDLE';
         npc.statusBubble = '';
         const err = new Error('ABORTED');
@@ -87,6 +88,7 @@ export function useOfficeRelay({
       npc.roamTarget = null;
       npc.roamPath = [];
       npc.pendingIdleBubble = '';
+      npc.meetingTimer = 0;
       npc.state = 'WALKING';
       npc.carryingDoc = Boolean(options.carryingDoc);
       npc.statusBubble = options.bubble || '';
@@ -98,6 +100,7 @@ export function useOfficeRelay({
         npc.carryingDoc = false;
         npc.statusBubble = options.endBubble || '';
         npc.hasReportExclamation = Boolean(options.showExclamation);
+        npc.meetingTimer = options.meetingDuration || 0;
         if (options.endFacing) npc.facing = options.endFacing;
         resolve();
       };
@@ -161,7 +164,8 @@ export function useOfficeRelay({
     let extraIdx = 0;
     const moves = [moveDirectorToMeetingSeat(signal)];
 
-    for (const ag of agents) {
+    for (let idx = 0; idx < agents.length; idx++) {
+      const ag = agents[idx];
       const isCore = CORE_AGENT_IDS.includes(ag.id);
       const seat = getAgentMeetingSeat(ag.id, isCore ? 0 : extraIdx++);
       const isLeadReporter = ag.id === leadReporterId;
@@ -178,9 +182,11 @@ export function useOfficeRelay({
                 : '⚠️ Lapor Revisi...'
               : '🪑 Ke Ruang Rapat...',
             endState: isLeadReporter ? 'REPORTING' : 'MEETING',
-            endBubble: '',
+            endBubble: isLeadReporter ? '📋 Laporan selesai!' : '',
             showExclamation: isLeadReporter,
             endFacing: seat.facing,
+            // Setelah rapat singkat (~7-8.5 detik), agen bubar kembali santai / roaming di kantor
+            meetingDuration: 7 + idx * 0.6,
           },
           signal
         )

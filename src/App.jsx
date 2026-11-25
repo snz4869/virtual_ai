@@ -177,6 +177,7 @@ export default function App() {
       npc.roamTarget = null;
       npc.roamPath = [];
       npc.pendingIdleBubble = '';
+      npc.meetingTimer = 0;
     });
 
     relay.setPipelineStatus('Kantor Direset • Semua karakter kembali ke posisi awal');
