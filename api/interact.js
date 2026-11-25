@@ -60,31 +60,57 @@ export default async function handler(req, res) {
     let lastError = null;
     for (const modelName of candidateModels) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(finalGeminiKey)}`;
-      
-      // Susun parts: file dulu (jika ada), lalu teks prompt
-      const parts = [];
-      if (fileData && fileData.base64) {
-        parts.push({
-          inlineData: {
-            mimeType: fileData.mimeType,
-            data: fileData.base64,
+      const gRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt || '' }] },
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          generationConfig: {
+            maxOutputTokens: 8192,
+            temperature: 0.4,
           },
-        });
-      }
-      parts.push({ text: userPrompt || '' });
-
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt || '' }] },
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          maxOutputTokens: 8192,
-          temperature: 0.4,
-        },
-      }),
+        }),
+      });
 
       const gData = await gRes.json();
       if (gRes.ok) {
-        const text = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const candidate = gData?.candidates?.[0];
+        let text = candidate?.content?.parts?.[0]?.text || '';
+
+        // Auto-continue otomatis jika terpotong batas token (MAX_TOKENS)
+        if (text && candidate?.finishReason === 'MAX_TOKENS') {
+          const contRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: systemPrompt || '' }] },
+              contents: [
+                { role: 'user', parts: [{ text: userPrompt }] },
+                { role: 'model', parts: [{ text }] },
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: 'Lanjutkan persis dari karakter terakhir yang terpotong hingga selesai tanpa mengulang bagian sebelumnya.',
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                maxOutputTokens: 8192,
+                temperature: 0.4,
+              },
+            }),
+          });
+
+          if (contRes.ok) {
+            const contData = await contRes.json();
+            const extraText = contData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            text += extraText;
+          }
+        }
+
         if (text) {
           return res.status(200).json({ text, modelUsed: modelName });
         }
