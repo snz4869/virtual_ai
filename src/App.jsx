@@ -345,6 +345,20 @@ export default function App() {
             office.setBgmTrack(trackId);
             playRetroTone('click', fxEnabled);
           }}
+          showAmbientStaff={showAmbientStaff}
+          onToggleAmbientStaff={() => {
+            setShowAmbientStaff((v) => !v);
+            playRetroTone('click', fxEnabled);
+          }}
+          cameraZoom={cameraZoom}
+          onChangeCameraZoom={setCameraZoom}
+          followDirector={followDirector}
+          onToggleFollowDirector={() => {
+            const next = !followDirector;
+            setFollowDirector(next);
+            if (next && cameraZoom === 1) setCameraZoom(1.4);
+          }}
+          onDisableFollow={() => setFollowDirector(false)}
           isWorkPanelOpen={isWorkPanelOpen}
           onToggleWorkPanel={handleToggleWorkPanel}
           apiMode={office.apiMode}
@@ -366,21 +380,14 @@ export default function App() {
           simSpeed={simSpeed}
           fxEnabled={fxEnabled}
           showAmbientStaff={showAmbientStaff}
-          onToggleAmbientStaff={() => setShowAmbientStaff((v) => !v)}
           cameraZoom={cameraZoom}
           onChangeCameraZoom={setCameraZoom}
           followDirector={followDirector}
-          onToggleFollowDirector={() => {
-            const next = !followDirector;
-            setFollowDirector(next);
-            if (next && cameraZoom === 1) setCameraZoom(1.4);
-          }}
           onDisableFollow={() => setFollowDirector(false)}
           selectedNpcId={selectedNpcId}
           inspectedAgent={inspectedAgent}
           onSelectNpc={setSelectedNpcId}
           onClearInspector={() => setSelectedNpcId(null)}
-          isWorkPanelOpen={isWorkPanelOpen}
           onDirectorSit={() => setIsWorkPanelOpen(true)}
           onDirectorStand={handleDirectorStand}
           isRelayRunning={relay.isRelayRunning}
