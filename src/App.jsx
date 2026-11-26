@@ -14,6 +14,16 @@ import { ALLOWED_FILE_TYPES, prepareFilePayload } from './utils/fileParser';
 import { buildOfficePath } from './utils/pathfinding';
 
 export default function App() {
+  const isEmbed =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('embed') === '1';
+
+  useEffect(() => {
+    if (isEmbed && window.parent !== window) {
+      window.parent.postMessage({ type: 'virtual-ai-embed-ready' }, '*');
+    }
+  }, [isEmbed]);
+
   const office = useOfficeState();
 
   const [promptInput, setPromptInput] = useState(PRESET_PROMPTS[0]);
@@ -299,7 +309,11 @@ export default function App() {
     logFilter === 'all' ? office.logs : office.logs.filter((l) => l.agentId === logFilter);
 
   return (
-    <div className="bg-slate-950 text-slate-200 font-sans lg:h-screen lg:overflow-hidden flex flex-col">
+    <div
+      className={`bg-slate-950 text-slate-200 font-sans flex flex-col ${
+        isEmbed ? 'h-screen overflow-hidden' : 'lg:h-screen lg:overflow-hidden'
+      }`}
+    >
       {toast && (
         <div
           className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl border text-xs font-medium text-white shadow-2xl ${
@@ -314,35 +328,38 @@ export default function App() {
         </div>
       )}
 
-      <HeaderBar
-        agentCount={office.agents.length}
-        simSpeed={simSpeed}
-        onChangeSimSpeed={setSimSpeed}
-        fxEnabled={fxEnabled}
-        onToggleFx={() => {
-          const next = !fxEnabled;
-          setFxEnabled(next);
-          if (next) playRetroTone('click', true);
-        }}
-        bgmTrack={office.bgmTrack}
-        onChangeBgmTrack={(trackId) => {
-          unlockAudio();
-          office.setBgmTrack(trackId);
-          playRetroTone('click', fxEnabled);
-        }}
-        isWorkPanelOpen={isWorkPanelOpen}
-        onToggleWorkPanel={handleToggleWorkPanel}
-        apiMode={office.apiMode}
-        aiProvider={office.aiProvider}
-        agyAvailable={office.agyStatus.available}
-        onOpenSettings={() => setActiveModal('settings')}
-        onOpenTeamModal={() => setActiveModal('sop')}
-        onExportMarkdown={exportMarkdown}
-        onResetOffice={resetOffice}
-      />
+      {!isEmbed && (
+        <HeaderBar
+          agentCount={office.agents.length}
+          simSpeed={simSpeed}
+          onChangeSimSpeed={setSimSpeed}
+          fxEnabled={fxEnabled}
+          onToggleFx={() => {
+            const next = !fxEnabled;
+            setFxEnabled(next);
+            if (next) playRetroTone('click', true);
+          }}
+          bgmTrack={office.bgmTrack}
+          onChangeBgmTrack={(trackId) => {
+            unlockAudio();
+            office.setBgmTrack(trackId);
+            playRetroTone('click', fxEnabled);
+          }}
+          isWorkPanelOpen={isWorkPanelOpen}
+          onToggleWorkPanel={handleToggleWorkPanel}
+          apiMode={office.apiMode}
+          aiProvider={office.aiProvider}
+          agyAvailable={office.agyStatus.available}
+          onOpenSettings={() => setActiveModal('settings')}
+          onOpenTeamModal={() => setActiveModal('sop')}
+          onExportMarkdown={exportMarkdown}
+          onResetOffice={resetOffice}
+        />
+      )}
 
       <div className="flex-1 relative flex overflow-x-clip overflow-y-hidden min-h-0">
         <OfficeViewport
+          isEmbed={isEmbed}
           npcRef={office.npcRef}
           directorRef={office.directorRef}
           fxEventsRef={fxEventsRef}

@@ -4,6 +4,7 @@ import OfficeCanvas2D from './OfficeCanvas2D';
 import { OFFICE_ROOMS } from '../constants/officeConfig';
 
 export default function OfficeViewport({
+  isEmbed = false,
   npcRef,
   directorRef,
   fxEventsRef,
@@ -35,6 +36,7 @@ export default function OfficeViewport({
   return (
     <section className="w-full flex-1 h-full bg-slate-950 relative flex flex-col shrink-0 min-h-0">
       {/* MOBILE TOP BAR: Statis di atas kanvas agar tidak menutupi ruangan office di HP */}
+      {!isEmbed && (
       <div className="lg:hidden px-3 py-1.5 bg-slate-900/95 border-b border-slate-800 flex items-center justify-between gap-2 text-[10px] text-slate-300 shrink-0">
         <span className="truncate">
           <strong>Tap lantai</strong>: gerak Director &bull; <strong>Tap NPC</strong>: inspeksi
@@ -87,15 +89,19 @@ export default function OfficeViewport({
           </button>
         </div>
       </div>
+      )}
 
       {/* DESKTOP OVERLAY HINT (Kiri Atas) */}
+      {!isEmbed && (
       <div className="hidden lg:block absolute top-3 left-3 z-10 pointer-events-none">
         <div className="bg-slate-900/85 backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-1.5 text-[11px] text-slate-300 shadow-lg">
           <strong>WASD / Klik Lantai</strong> gerak &bull; <strong>Klik Kursi Director / E</strong> duduk &amp; buka perintah &bull; <strong>Klik NPC</strong> sapa
         </div>
       </div>
+      )}
 
       {/* DESKTOP CAMERA & CROWD CONTROLS (Kanan Atas — meluncur halus saat panel dibuka) */}
+      {!isEmbed && (
       <div
         className={`hidden lg:flex absolute top-3 right-3 z-10 items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-lg transition-opacity duration-200 ${
           isWorkPanelOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -160,6 +166,7 @@ export default function OfficeViewport({
           <span>Follow</span>
         </button>
       </div>
+      )}
 
       <div className="flex-1 min-h-0 relative">
         <OfficeCanvas2D
@@ -210,13 +217,15 @@ export default function OfficeViewport({
         </div>
       )}
 
-      <div className="bg-slate-900/95 border-t border-slate-800 px-4 py-2 flex items-center justify-between gap-2 text-[11px] shrink-0">
-        <span className="text-slate-400 shrink-0">
-          {OFFICE_ROOMS.length} Rooms •{' '}
-          {workflowMode === 'solo' ? 'Solo Full-Stack' : `Tim Relay • QA Loop (max ${maxRevisions}x)`}
-        </span>
-        <span className="font-mono text-indigo-400 truncate">{pipelineStatus}</span>
-      </div>
+      {!isEmbed && (
+        <div className="bg-slate-900/95 border-t border-slate-800 px-4 py-2 flex items-center justify-between gap-2 text-[11px] shrink-0">
+          <span className="text-slate-400 shrink-0">
+            {OFFICE_ROOMS.length} Rooms •{' '}
+            {workflowMode === 'solo' ? 'Solo Full-Stack' : `Tim Relay • QA Loop (max ${maxRevisions}x)`}
+          </span>
+          <span className="font-mono text-indigo-400 truncate">{pipelineStatus}</span>
+        </div>
+      )}
     </section>
   );
 }
