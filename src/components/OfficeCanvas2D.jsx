@@ -4,13 +4,51 @@ import {
   WORLD_H,
   OFFICE_ROOMS,
   OFFICE_COLLIDERS,
+  OFFICE_EXIT_ZONE,
   DIRECTOR_SEAT_ZONE,
   MEETING_SEATS,
   WAYPOINTS,
   AMBIENT_STAFF,
   AMBIENT_ACTIVITIES,
 } from '../constants/officeConfig';
-import { buildOfficePath } from '../utils/pathfinding';
+import {
+  OFFICE_HQ_BUILDING,
+  VILLAGE_ACTIVITIES,
+  VILLAGE_BASKETBALL_CONFIG,
+  VILLAGE_BENCHES,
+  VILLAGE_BOAT_CONFIG,
+  VILLAGE_BUILDINGS,
+  VILLAGE_COLLIDERS,
+  VILLAGE_EXTRA_SEATS,
+  VILLAGE_H,
+  VILLAGE_LAKE,
+  VILLAGE_NOTICE_BOARD,
+  VILLAGE_PETS,
+  VILLAGE_PIER,
+  VILLAGE_RESIDENTS,
+  VILLAGE_TRAM_CONFIG,
+  VILLAGE_W,
+} from '../constants/villageConfig';
+import { buildOfficePath, buildVillagePath } from '../utils/pathfinding';
+import {
+  VILLAGE_MINIMAP_RECT,
+  createVillageBackgroundBuffer,
+  drawVillageActivityHud,
+  drawVillageBoat,
+  drawVillageDynamicOverlay,
+  drawVillageMinimap,
+  drawVillagePet,
+} from '../utils/villageRenderer';
+
+const ALL_VILLAGE_SEATS = [...VILLAGE_BENCHES, ...VILLAGE_EXTRA_SEATS];
+
+function isSafeBoatWater(x, y) {
+  const b = VILLAGE_BOAT_CONFIG.sailBounds;
+  if (x < b.minX || x > b.maxX || y < b.minY || y > b.maxY) return false;
+  const p = VILLAGE_BOAT_CONFIG.pierAvoidBox;
+  if (x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h) return false;
+  return true;
+}
 import { playRetroTone, unlockAudio } from '../utils/audio';
 
 const AMBIENT_GREETINGS = [
@@ -21,6 +59,48 @@ const AMBIENT_GREETINGS = [
   'Bentar lagi beres ✨',
   'Kopi dulu Bos? ☕',
 ];
+
+const VILLAGER_GREETINGS = [
+  'Halo Director! 👋',
+  'Cerita desa hari ini cerah ☀️',
+  'Office HQ makin keren! 🏢',
+  'Mampir ke Kopi Senja yuk ☕',
+  'Selamat bekerja! ✨',
+];
+
+function createVillagePets() {
+  return VILLAGE_PETS.map((pet) => ({
+    ...pet,
+    x: pet.startSpot.x,
+    y: pet.startSpot.y,
+    facing: 'right',
+    state: 'IDLE',
+    statusBubble: '',
+    bubbleClearTimer: 0,
+    stateTimer: 4 + Math.random() * 4,
+    pathQueue: [],
+    walkPhase: 0,
+  }));
+}
+
+function createVillageResidents() {
+  return VILLAGE_RESIDENTS.map((res, idx) => ({
+    ...res,
+    isAmbient: true,
+    x: res.startSpot.x,
+    y: res.startSpot.y,
+    facing: 'down',
+    state: 'IDLE',
+    statusBubble: idx % 2 === 0 ? res.bubbles[0] : '',
+    bubbleClearTimer: idx % 2 === 0 ? 3 + idx : 0,
+    stateTimer: 3 + Math.random() * 5,
+    pathQueue: [],
+    pendingFacing: 'down',
+    pendingBubble: '',
+    walkPhase: Math.random() * 6,
+    hitTimer: 0,
+  }));
+}
 
 function createAmbientEntities() {
   return AMBIENT_STAFF.map((staff, idx) => {
@@ -50,9 +130,9 @@ function createAmbientEntities() {
 }
 
 // Cek apakah area kaki karakter (hitbox 18x12 di sekitar kaki) menabrak objek
-function isPositionBlocked(x, y) {
+function isPositionBlocked(x, y, colliders = OFFICE_COLLIDERS) {
   const footBox = { x: x - 9, y: y + 4, w: 18, h: 12 };
-  return OFFICE_COLLIDERS.some(
+  return colliders.some(
     (box) =>
       footBox.x < box.x + box.w &&
       footBox.x + footBox.w > box.x &&
@@ -348,6 +428,17 @@ function createOfficeBackgroundBuffer() {
   ctx.strokeStyle = '#261e24';
   ctx.lineWidth = 14;
   ctx.strokeRect(7, 7, WORLD_W - 14, WORLD_H - 14);
+
+  // Pintu kaca utama di dinding selatan koridor untuk keluar ke Village
+  drawPixelBox(ctx, 260, 1166, 76, 28, '#4f46e5', '#1e1b4b', 1.8);
+  ctx.fillStyle = '#e0e7ff';
+  ctx.font = 'bold 9px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('VILLAGE', 298, 1183);
+  drawPixelBox(ctx, 256, 1196, 84, 20, '#0f172a', '#38bdf8', 2);
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillRect(262, 1200, 33, 12);
+  ctx.fillRect(301, 1200, 33, 12);
 
   // Efek cahaya matahari lembut masuk dari jendela atas (sepanjang kantor widescreen)
   [390, 500, 610, 780, 880, 1080, 1210, 1340, 1540, 1690].forEach((wx) => {
@@ -1007,6 +1098,7 @@ function spawnParticles(particles, event) {
 }
 
 export default function OfficeCanvas2D({
+  activeScene = 'village',
   npcRef,
   directorRef,
   fxEventsRef = null,
@@ -1022,22 +1114,81 @@ export default function OfficeCanvas2D({
   onClearInspector,
   onDirectorSit = null,
   onDirectorStand = null,
+  onEnterOffice = null,
+  onExitToVillage = null,
+  onVillageNotice = null,
+  onOpenVillageGuide = null,
 }) {
   const canvasRef = useRef(null);
   const bgBufferRef = useRef(null);
+  const villageBgBufferRef = useRef(null);
   const keysRef = useRef({});
+  const sceneRef = useRef(activeScene);
   const fxEnabledRef = useRef(fxEnabled);
   const showAmbientRef = useRef(showAmbientStaff);
   const onDirectorSitRef = useRef(onDirectorSit);
   const onDirectorStandRef = useRef(onDirectorStand);
+  const onEnterOfficeRef = useRef(onEnterOffice);
+  const onExitToVillageRef = useRef(onExitToVillage);
+  const onVillageNoticeRef = useRef(onVillageNotice);
+  const onOpenVillageGuideRef = useRef(onOpenVillageGuide);
   const ambientRef = useRef(null);
   if (!ambientRef.current) {
     ambientRef.current = createAmbientEntities();
   }
+  const villagersRef = useRef(null);
+  if (!villagersRef.current) {
+    villagersRef.current = createVillageResidents();
+  }
+  const petsRef = useRef(null);
+  if (!petsRef.current) {
+    petsRef.current = createVillagePets();
+  }
+  const tramXRef = useRef(210);
+  const basketballRef = useRef({ score: 0, shot: null, swishTimer: 0 });
+  const manualPanRef = useRef(false);
   const particlesRef = useRef([]);
   const stepSfxTimerRef = useRef(0);
-  const camRef = useRef({ x: 0, y: 0, zoom: cameraZoom });
+  const transitionCooldownRef = useRef(0);
+  const transitionFadeRef = useRef(0);
+  const camRef = useRef({
+    x: activeScene === 'village'
+      ? Math.max(0, Math.min(VILLAGE_W - WORLD_W, OFFICE_HQ_BUILDING.spawnOutside.x - WORLD_W / 2))
+      : 0,
+    y: activeScene === 'village'
+      ? Math.max(0, Math.min(VILLAGE_H - WORLD_H, OFFICE_HQ_BUILDING.spawnOutside.y - WORLD_H / 2))
+      : 0,
+    zoom: cameraZoom,
+  });
   const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, camStartX: 0, camStartY: 0 });
+
+  useEffect(() => {
+    if (sceneRef.current !== activeScene) {
+      sceneRef.current = activeScene;
+      transitionCooldownRef.current = 0.65;
+      transitionFadeRef.current = 0.85;
+      manualPanRef.current = false;
+      keysRef.current = {};
+
+      const zoom = camRef.current.zoom || 1;
+      const viewW = WORLD_W / zoom;
+      const viewH = WORLD_H / zoom;
+      const dir = directorRef?.current;
+      if (activeScene === 'village' && dir) {
+        camRef.current = {
+          zoom,
+          x: Math.max(0, Math.min(VILLAGE_W - viewW, dir.x - viewW / 2)),
+          y: Math.max(0, Math.min(VILLAGE_H - viewH, dir.y - viewH / 2)),
+        };
+      } else {
+        camRef.current = {
+          zoom,
+          x: zoom <= 1 ? 0 : Math.max(0, Math.min(WORLD_W - viewW, (dir?.x ?? WORLD_W / 2) - viewW / 2)),
+          y: zoom <= 1 ? 0 : Math.max(0, Math.min(WORLD_H - viewH, (dir?.y ?? WORLD_H / 2) - viewH / 2)),
+        };
+      }
+    }
+  }, [activeScene, directorRef]);
 
   useEffect(() => {
     fxEnabledRef.current = fxEnabled;
@@ -1050,12 +1201,26 @@ export default function OfficeCanvas2D({
   useEffect(() => {
     onDirectorSitRef.current = onDirectorSit;
     onDirectorStandRef.current = onDirectorStand;
-  }, [onDirectorSit, onDirectorStand]);
+    onEnterOfficeRef.current = onEnterOffice;
+    onExitToVillageRef.current = onExitToVillage;
+    onVillageNoticeRef.current = onVillageNotice;
+    onOpenVillageGuideRef.current = onOpenVillageGuide;
+  }, [
+    onDirectorSit,
+    onDirectorStand,
+    onEnterOffice,
+    onExitToVillage,
+    onVillageNotice,
+    onOpenVillageGuide,
+  ]);
 
   useEffect(() => {
+    const isVillage = sceneRef.current === 'village';
+    const mapW = isVillage ? VILLAGE_W : WORLD_W;
+    const mapH = isVillage ? VILLAGE_H : WORLD_H;
     const prevZoom = camRef.current.zoom || 1;
     const nextZoom = Math.max(1, Math.min(2.2, cameraZoom || 1));
-    if (nextZoom === 1) {
+    if (nextZoom === 1 && !isVillage) {
       camRef.current = { x: 0, y: 0, zoom: 1 };
       return;
     }
@@ -1068,10 +1233,16 @@ export default function OfficeCanvas2D({
     const nextViewH = WORLD_H / nextZoom;
     camRef.current = {
       zoom: nextZoom,
-      x: Math.max(0, Math.min(WORLD_W - nextViewW, centerX - nextViewW / 2)),
-      y: Math.max(0, Math.min(WORLD_H - nextViewH, centerY - nextViewH / 2)),
+      x: Math.max(0, Math.min(mapW - nextViewW, centerX - nextViewW / 2)),
+      y: Math.max(0, Math.min(mapH - nextViewH, centerY - nextViewH / 2)),
     };
   }, [cameraZoom]);
+
+  useEffect(() => {
+    if (followDirector) {
+      manualPanRef.current = false;
+    }
+  }, [followDirector]);
 
   // Keyboard WASD / Arrow Keys untuk karakter Director
   useEffect(() => {
@@ -1083,12 +1254,33 @@ export default function OfficeCanvas2D({
         unlockAudio();
         keysRef.current[key] = true;
         if (directorRef?.current) {
-          const wasSitting = Boolean(directorRef.current.isSitting);
-          directorRef.current.pathQueue = [];
-          directorRef.current.onArriveCallback = null;
-          directorRef.current.isSitting = false;
-          if (wasSitting) {
-            onDirectorStandRef.current?.();
+          const dir = directorRef.current;
+          if (dir.activity === 'tram') {
+            dir.activity = null;
+            dir.isSitting = false;
+            dir.statusBubble = '';
+            dir.x = VILLAGE_TRAM_CONFIG.stationDropSpot.x;
+            dir.y = VILLAGE_TRAM_CONFIG.stationDropSpot.y;
+            dir.facing = 'down';
+            playRetroTone('click', fxEnabledRef.current);
+          } else if (dir.activity === 'sit') {
+            if (dir.standBackSpot) {
+              dir.x = dir.standBackSpot.x;
+              dir.y = dir.standBackSpot.y;
+            }
+            dir.activity = null;
+            dir.isSitting = false;
+            dir.statusBubble = '';
+          } else if (dir.activity === 'boat') {
+            dir.boatTarget = null;
+          } else {
+            const wasSitting = Boolean(dir.isSitting);
+            dir.pathQueue = [];
+            dir.onArriveCallback = null;
+            dir.isSitting = false;
+            if (wasSitting) {
+              onDirectorStandRef.current?.();
+            }
           }
         }
       }
@@ -1097,10 +1289,196 @@ export default function OfficeCanvas2D({
         e.preventDefault();
         unlockAudio();
         const dir = directorRef?.current;
+        if (!dir) return;
+        const isVillage = sceneRef.current === 'village';
+
+        if (isVillage) {
+          // 1. Jika sedang naik perahu / trem / duduk -> turun atau berdiri
+          if (dir.activity === 'boat') {
+            dir.activity = null;
+            dir.isSitting = false;
+            dir.boatTarget = null;
+            dir.statusBubble = '';
+            dir.x = VILLAGE_BOAT_CONFIG.dockPoint.x;
+            dir.y = VILLAGE_BOAT_CONFIG.dockPoint.y;
+            dir.facing = 'up';
+            playRetroTone('click', fxEnabledRef.current);
+            return;
+          }
+          if (dir.activity === 'tram') {
+            dir.activity = null;
+            dir.isSitting = false;
+            dir.statusBubble = '';
+            dir.x = VILLAGE_TRAM_CONFIG.stationDropSpot.x;
+            dir.y = VILLAGE_TRAM_CONFIG.stationDropSpot.y;
+            dir.facing = 'down';
+            playRetroTone('click', fxEnabledRef.current);
+            return;
+          }
+          if (dir.activity === 'sit') {
+            if (dir.standBackSpot) {
+              dir.x = dir.standBackSpot.x;
+              dir.y = dir.standBackSpot.y;
+            }
+            dir.activity = null;
+            dir.isSitting = false;
+            dir.statusBubble = '';
+            playRetroTone('click', fxEnabledRef.current);
+            return;
+          }
+
+          // 2. Dekat pintu Virtual Office HQ -> langsung masuk gedung kantor
+          if (OFFICE_HQ_BUILDING) {
+            const entry = OFFICE_HQ_BUILDING.entrySpot;
+            if (Math.hypot(dir.x - entry.x, dir.y - entry.y) <= 88) {
+              onEnterOfficeRef.current?.();
+              return;
+            }
+          }
+
+          // 3. Dekat Papan Pengumuman Desa -> buka modal info web & fitur lengkap
+          const nbSpot = VILLAGE_NOTICE_BOARD.visitSpot;
+          if (Math.hypot(dir.x - nbSpot.x, dir.y - nbSpot.y) <= 88) {
+            playRetroTone('greet', fxEnabledRef.current);
+            onOpenVillageGuideRef.current?.();
+            return;
+          }
+
+          // 4. Dekat Dermaga Perahu Danau -> naik perahu!
+          const dp = VILLAGE_BOAT_CONFIG.dockPoint;
+          if (Math.hypot(dir.x - dp.x, dir.y - dp.y) <= 92) {
+            dir.activity = 'boat';
+            dir.isSitting = true;
+            dir.pathQueue = [];
+            dir.onArriveCallback = null;
+            dir.boatTarget = null;
+            dir.x = VILLAGE_BOAT_CONFIG.mooredPos.x;
+            dir.y = VILLAGE_BOAT_CONFIG.mooredPos.y;
+            dir.facing = 'right';
+            dir.statusBubble = '🚣 Yuk dayung!';
+            dir.bubbleClearTimer = 2.2;
+            manualPanRef.current = false;
+            playRetroTone('boat', fxEnabledRef.current);
+            return;
+          }
+
+          // 5. Dekat Stasiun Trem -> naik trem wisata!
+          const sb = VILLAGE_TRAM_CONFIG.stationNearBox;
+          const isNearStation =
+            dir.x >= sb.x && dir.x <= sb.x + sb.w && dir.y >= sb.y && dir.y <= sb.y + sb.h;
+          if (isNearStation) {
+            dir.activity = 'tram';
+            dir.isSitting = true;
+            dir.pathQueue = [];
+            dir.onArriveCallback = null;
+            tramXRef.current = 200;
+            dir.x = tramXRef.current + 124;
+            dir.y = VILLAGE_TRAM_CONFIG.rideY;
+            dir.facing = 'right';
+            dir.statusBubble = '🚋 Berangkat naik trem!';
+            dir.bubbleClearTimer = 2.4;
+            manualPanRef.current = false;
+            playRetroTone('tram', fxEnabledRef.current);
+            return;
+          }
+
+          // 6. Sedang di Lapangan Basket -> lempar bola ke ring!
+          const court = VILLAGE_BASKETBALL_CONFIG.courtZone;
+          if (
+            dir.x >= court.x &&
+            dir.x <= court.x + court.w &&
+            dir.y >= court.y &&
+            dir.y <= court.y + court.h
+          ) {
+            if (!basketballRef.current.shot) {
+              dir.facing = 'up';
+              basketballRef.current.shot = {
+                sx: dir.x,
+                sy: dir.y - 10,
+                progress: 0,
+                isThree: dir.y >= VILLAGE_BASKETBALL_CONFIG.threePointY,
+              };
+              playRetroTone('click', fxEnabledRef.current);
+            }
+            return;
+          }
+
+          // 7. Dekat bangku taman / kursi patio / kayu api unggun -> duduk santai!
+          const nearSeat = ALL_VILLAGE_SEATS.find(
+            (s) => Math.hypot(dir.x - s.seatSpot.x, dir.y - s.seatSpot.y) <= 62
+          );
+          if (nearSeat) {
+            dir.standBackSpot = { x: nearSeat.approachSpot.x, y: nearSeat.approachSpot.y };
+            dir.x = nearSeat.seatSpot.x;
+            dir.y = nearSeat.seatSpot.y;
+            dir.facing = nearSeat.facing;
+            dir.pathQueue = [];
+            dir.onArriveCallback = null;
+            dir.isMoving = false;
+            dir.isSitting = true;
+            dir.activity = 'sit';
+            dir.statusBubble = nearSeat.bubble;
+            dir.bubbleClearTimer = 0;
+            playRetroTone('approve', fxEnabledRef.current);
+            return;
+          }
+
+          // 8. Dekat hewan desa (Mochi / Bubu) -> elus!
+          const nearPet = (petsRef.current || []).find(
+            (p) => Math.hypot(dir.x - p.x, dir.y - p.y) <= 72
+          );
+          if (nearPet) {
+            playRetroTone('pet', fxEnabledRef.current);
+            nearPet.statusBubble =
+              nearPet.purrs[Math.floor(Math.random() * nearPet.purrs.length)];
+            nearPet.bubbleClearTimer = 2.6;
+            spawnParticles(particlesRef.current, { type: 'handoff', x: nearPet.x, y: nearPet.y });
+            return;
+          }
+
+          // 9. Dekat bangunan tetangga lain -> tampilkan info bangunan
+          const nearBuilding = VILLAGE_BUILDINGS.find(
+            (b) =>
+              !b.enterable &&
+              b.visitSpot &&
+              Math.hypot(dir.x - b.visitSpot.x, dir.y - b.visitSpot.y) <= 85
+          );
+          if (nearBuilding) {
+            playRetroTone('greet', fxEnabledRef.current);
+            onVillageNoticeRef.current?.(nearBuilding.infoBubble || nearBuilding.name);
+            return;
+          }
+
+          // 10. Sapa warga village terdekat
+          const villagers = showAmbientRef.current ? villagersRef.current || [] : [];
+          let nearestVillager = null;
+          let minDist = 75;
+          villagers.forEach((v) => {
+            const d = Math.hypot(v.x - dir.x, v.y - dir.y);
+            if (d < minDist) {
+              minDist = d;
+              nearestVillager = v;
+            }
+          });
+          if (nearestVillager) {
+            playRetroTone('greet', fxEnabledRef.current);
+            dir.facing = resolveFacing(nearestVillager.x - dir.x, nearestVillager.y - dir.y, dir.facing);
+            nearestVillager.facing = resolveFacing(
+              dir.x - nearestVillager.x,
+              dir.y - nearestVillager.y,
+              nearestVillager.facing
+            );
+            nearestVillager.statusBubble =
+              VILLAGER_GREETINGS[Math.floor(Math.random() * VILLAGER_GREETINGS.length)];
+            nearestVillager.bubbleClearTimer = 2.6;
+          }
+          return;
+        }
+
+        // === SCENE OFFICE ===
         const aiNpcs = npcRef?.current || [];
         const ambNpcs = showAmbientRef.current ? ambientRef.current || [] : [];
         const allNpcs = [...aiNpcs, ...ambNpcs];
-        if (!dir) return;
 
         let nearest = null;
         let minDist = 75;
@@ -1111,6 +1489,13 @@ export default function OfficeCanvas2D({
             nearest = npc;
           }
         });
+
+        // Jika dekat pintu keluar utama Office -> keluar ke peta Village
+        const exitSpot = WAYPOINTS.officeExitDoor;
+        if (Math.hypot(dir.x - exitSpot.x, dir.y - exitSpot.y) <= 78 && (!nearest || minDist > 48)) {
+          onExitToVillageRef.current?.();
+          return;
+        }
 
         // Jika dekat kursi Director (dan tidak sedang berhadap-hadapan persis dengan NPC), duduk & buka Perintah Director
         const seat = MEETING_SEATS.director;
@@ -1142,7 +1527,7 @@ export default function OfficeCanvas2D({
           const angle = Math.atan2(nearest.y - dir.y, nearest.x - dir.x);
           const pushX = nearest.x + Math.cos(angle) * 14;
           const pushY = nearest.y + Math.sin(angle) * 14;
-          if (!isPositionBlocked(pushX, pushY)) {
+          if (!isPositionBlocked(pushX, pushY, OFFICE_COLLIDERS)) {
             nearest.x = pushX;
             nearest.y = pushY;
           }
@@ -1172,6 +1557,9 @@ export default function OfficeCanvas2D({
     if (!bgBufferRef.current) {
       bgBufferRef.current = createOfficeBackgroundBuffer();
     }
+    if (!villageBgBufferRef.current) {
+      villageBgBufferRef.current = createVillageBackgroundBuffer();
+    }
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1179,15 +1567,26 @@ export default function OfficeCanvas2D({
     let animId;
     let lastTime = performance.now();
 
-    const toWorld = (clientX, clientY) => {
+    const toCanvas = (clientX, clientY) => {
       const rect = canvas.getBoundingClientRect();
-      const canvasX = ((clientX - rect.left) / rect.width) * WORLD_W;
-      const canvasY = ((clientY - rect.top) / rect.height) * WORLD_H;
+      return {
+        x: ((clientX - rect.left) / rect.width) * WORLD_W,
+        y: ((clientY - rect.top) / rect.height) * WORLD_H,
+      };
+    };
+
+    const toWorld = (clientX, clientY) => {
+      const c = toCanvas(clientX, clientY);
       const { x: camX, y: camY, zoom } = camRef.current;
       return {
-        x: canvasX / zoom + camX,
-        y: canvasY / zoom + camY,
+        x: c.x / zoom + camX,
+        y: c.y / zoom + camY,
       };
+    };
+
+    const isPointInMinimap = (cx, cy) => {
+      const m = VILLAGE_MINIMAP_RECT;
+      return cx >= m.x - 4 && cx <= m.x + m.w + 4 && cy >= m.y - 4 && cy <= m.y + m.h + 4;
     };
 
     const hitTestNpc = (wx, wy) => {
@@ -1209,14 +1608,85 @@ export default function OfficeCanvas2D({
       return null;
     };
 
+    const hitTestVillager = (wx, wy) => {
+      if (!showAmbientRef.current) return null;
+      const list = villagersRef.current || [];
+      for (const v of list) {
+        if (Math.hypot(wx - v.x, wy - (v.y - 8)) <= 24) return v;
+      }
+      return null;
+    };
+
+    const hitTestPet = (wx, wy) => {
+      const list = petsRef.current || [];
+      for (const pet of list) {
+        if (Math.hypot(wx - pet.x, wy - (pet.y - 4)) <= 24) return pet;
+      }
+      return null;
+    };
+
+    const isPointInNoticeBoard = (wx, wy) => {
+      const z = VILLAGE_NOTICE_BOARD.interactZone;
+      return wx >= z.x && wx <= z.x + z.w && wy >= z.y && wy <= z.y + z.h;
+    };
+
+    const isPointInBoatDock = (wx, wy) => {
+      const z = VILLAGE_BOAT_CONFIG.dockZone;
+      return wx >= z.x && wx <= z.x + z.w && wy >= z.y && wy <= z.y + z.h;
+    };
+
+    const isPointOnTram = (wx, wy) =>
+      wx >= tramXRef.current - 16 &&
+      wx <= tramXRef.current + 188 &&
+      wy >= VILLAGE_TRAM_CONFIG.trackY - 26 &&
+      wy <= VILLAGE_TRAM_CONFIG.trackY + 56;
+
+    const isPointOnStationPlatform = (wx, wy) => {
+      const sz = VILLAGE_TRAM_CONFIG.stationZone;
+      return wx >= sz.x && wx <= sz.x + sz.w && wy >= sz.y && wy <= sz.y + sz.h;
+    };
+
+    const isPointInBasketballHoop = (wx, wy) => {
+      const z = VILLAGE_BASKETBALL_CONFIG.hoopZone;
+      return wx >= z.x && wx <= z.x + z.w && wy >= z.y && wy <= z.y + z.h;
+    };
+
+    const hitTestVillageSeat = (wx, wy) => {
+      for (const s of ALL_VILLAGE_SEATS) {
+        if (wx >= s.x - 6 && wx <= s.x + s.w + 6 && wy >= s.y - 6 && wy <= s.y + s.h + 6) {
+          return s;
+        }
+      }
+      return null;
+    };
+
+    const hitTestBuilding = (wx, wy) => {
+      for (const b of VILLAGE_BUILDINGS) {
+        const inBody = wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h;
+        const dz = b.doorZone;
+        const inDoor = dz && wx >= dz.x && wx <= dz.x + dz.w && wy >= dz.y && wy <= dz.y + dz.h;
+        if (inBody || inDoor) return b;
+      }
+      return null;
+    };
+
     const isPointInDirectorSeat = (wx, wy) =>
       wx >= DIRECTOR_SEAT_ZONE.x &&
       wx <= DIRECTOR_SEAT_ZONE.x + DIRECTOR_SEAT_ZONE.w &&
       wy >= DIRECTOR_SEAT_ZONE.y &&
       wy <= DIRECTOR_SEAT_ZONE.y + DIRECTOR_SEAT_ZONE.h;
 
+    const isPointInOfficeExit = (wx, wy) =>
+      wx >= OFFICE_EXIT_ZONE.x &&
+      wx <= OFFICE_EXIT_ZONE.x + OFFICE_EXIT_ZONE.w &&
+      wy >= OFFICE_EXIT_ZONE.y &&
+      wy <= OFFICE_EXIT_ZONE.y + OFFICE_EXIT_ZONE.h;
+
     const onMouseDown = (e) => {
-      if (camRef.current.zoom <= 1) return;
+      const isVillage = sceneRef.current === 'village';
+      const c = toCanvas(e.clientX, e.clientY);
+      if (isVillage && isPointInMinimap(c.x, c.y)) return;
+      if (!isVillage && camRef.current.zoom <= 1) return;
       dragRef.current = {
         active: true,
         moved: false,
@@ -1228,11 +1698,16 @@ export default function OfficeCanvas2D({
     };
 
     const onMouseMove = (e) => {
-      if (dragRef.current.active && camRef.current.zoom > 1) {
+      const isVillage = sceneRef.current === 'village';
+      const mapW = isVillage ? VILLAGE_W : WORLD_W;
+      const mapH = isVillage ? VILLAGE_H : WORLD_H;
+
+      if (dragRef.current.active && (isVillage || camRef.current.zoom > 1)) {
         const dxScreen = e.clientX - dragRef.current.startX;
         const dyScreen = e.clientY - dragRef.current.startY;
         if (Math.hypot(dxScreen, dyScreen) > 6) {
           dragRef.current.moved = true;
+          manualPanRef.current = true;
           onDisableFollow?.();
         }
         if (dragRef.current.moved) {
@@ -1242,16 +1717,35 @@ export default function OfficeCanvas2D({
           const dyWorld = (dyScreen / rect.height) * (WORLD_H / zoom);
           const viewW = WORLD_W / zoom;
           const viewH = WORLD_H / zoom;
-          camRef.current.x = Math.max(0, Math.min(WORLD_W - viewW, dragRef.current.camStartX - dxWorld));
-          camRef.current.y = Math.max(0, Math.min(WORLD_H - viewH, dragRef.current.camStartY - dyWorld));
+          camRef.current.x = Math.max(0, Math.min(mapW - viewW, dragRef.current.camStartX - dxWorld));
+          camRef.current.y = Math.max(0, Math.min(mapH - viewH, dragRef.current.camStartY - dyWorld));
           canvas.style.cursor = 'grabbing';
           return;
         }
       }
 
+      const c = toCanvas(e.clientX, e.clientY);
+      if (isVillage && isPointInMinimap(c.x, c.y)) {
+        canvas.style.cursor = 'pointer';
+        return;
+      }
+
       const pt = toWorld(e.clientX, e.clientY);
-      const hit = hitTestNpc(pt.x, pt.y) || hitTestAmbient(pt.x, pt.y) || isPointInDirectorSeat(pt.x, pt.y);
-      canvas.style.cursor = hit ? 'pointer' : camRef.current.zoom > 1 ? 'grab' : 'crosshair';
+      const hit = isVillage
+        ? hitTestVillager(pt.x, pt.y) ||
+          hitTestPet(pt.x, pt.y) ||
+          isPointInNoticeBoard(pt.x, pt.y) ||
+          isPointInBoatDock(pt.x, pt.y) ||
+          isPointOnTram(pt.x, pt.y) ||
+          isPointOnStationPlatform(pt.x, pt.y) ||
+          isPointInBasketballHoop(pt.x, pt.y) ||
+          hitTestVillageSeat(pt.x, pt.y) ||
+          hitTestBuilding(pt.x, pt.y)
+        : hitTestNpc(pt.x, pt.y) ||
+          hitTestAmbient(pt.x, pt.y) ||
+          isPointInDirectorSeat(pt.x, pt.y) ||
+          isPointInOfficeExit(pt.x, pt.y);
+      canvas.style.cursor = hit ? 'pointer' : isVillage || camRef.current.zoom > 1 ? 'grab' : 'crosshair';
     };
 
     const onMouseUp = () => {
@@ -1275,6 +1769,322 @@ export default function OfficeCanvas2D({
         return;
       }
       const pt = toWorld(e.clientX, e.clientY);
+      const dir = directorRef?.current;
+
+      if (sceneRef.current === 'village') {
+        // Klik pada Minimap -> geser kamera cepat ke distrik yang diklik
+        const c = toCanvas(e.clientX, e.clientY);
+        if (isPointInMinimap(c.x, c.y)) {
+          const m = VILLAGE_MINIMAP_RECT;
+          const targetWorldX = ((c.x - m.x) / m.w) * VILLAGE_W;
+          const targetWorldY = ((c.y - m.y) / m.h) * VILLAGE_H;
+          const viewW = WORLD_W / (camRef.current.zoom || 1);
+          const viewH = WORLD_H / (camRef.current.zoom || 1);
+          manualPanRef.current = true;
+          camRef.current.x = Math.max(0, Math.min(VILLAGE_W - viewW, targetWorldX - viewW / 2));
+          camRef.current.y = Math.max(0, Math.min(VILLAGE_H - viewH, targetWorldY - viewH / 2));
+          playRetroTone('click', fxEnabledRef.current);
+          return;
+        }
+
+        // Jika sedang naik trem -> klik di mana saja untuk turun di Stasiun Trem
+        if (dir?.activity === 'tram') {
+          dir.activity = null;
+          dir.isSitting = false;
+          dir.statusBubble = '';
+          dir.x = VILLAGE_TRAM_CONFIG.stationDropSpot.x;
+          dir.y = VILLAGE_TRAM_CONFIG.stationDropSpot.y;
+          dir.facing = 'down';
+          playRetroTone('click', fxEnabledRef.current);
+          return;
+        }
+
+        // Jika sedang naik perahu -> klik air untuk mendayung, klik dermaga/daratan untuk turun
+        if (dir?.activity === 'boat') {
+          const onPier =
+            pt.x >= VILLAGE_PIER.x - 10 &&
+            pt.x <= VILLAGE_PIER.x + VILLAGE_PIER.w + 10 &&
+            pt.y >= VILLAGE_PIER.y - 10 &&
+            pt.y <= VILLAGE_PIER.y + VILLAGE_PIER.h + 10;
+          const inLake =
+            pt.x >= VILLAGE_LAKE.x &&
+            pt.x <= VILLAGE_LAKE.x + VILLAGE_LAKE.w &&
+            pt.y >= VILLAGE_LAKE.y &&
+            pt.y <= VILLAGE_LAKE.y + VILLAGE_LAKE.h;
+          if (onPier || !inLake) {
+            dir.activity = null;
+            dir.isSitting = false;
+            dir.boatTarget = null;
+            dir.statusBubble = '';
+            dir.x = VILLAGE_BOAT_CONFIG.dockPoint.x;
+            dir.y = VILLAGE_BOAT_CONFIG.dockPoint.y;
+            dir.facing = 'up';
+            playRetroTone('click', fxEnabledRef.current);
+          } else {
+            const b = VILLAGE_BOAT_CONFIG.sailBounds;
+            const tx = Math.max(b.minX, Math.min(b.maxX, pt.x));
+            const ty = Math.max(b.minY, Math.min(b.maxY, pt.y));
+            if (isSafeBoatWater(tx, ty)) {
+              manualPanRef.current = false;
+              dir.boatTarget = { x: tx, y: ty };
+              dir.targetMarker = { x: tx, y: ty, ttl: 0.9 };
+              playRetroTone('click', fxEnabledRef.current);
+            }
+          }
+          return;
+        }
+
+        // Jika sedang duduk di bangku/kursi -> berdiri dulu sebelum aksi klik berikutnya
+        if (dir?.activity === 'sit') {
+          if (dir.standBackSpot) {
+            dir.x = dir.standBackSpot.x;
+            dir.y = dir.standBackSpot.y;
+          }
+          dir.activity = null;
+          dir.isSitting = false;
+          dir.statusBubble = '';
+        }
+
+        const startBoat = () => {
+          dir.activity = 'boat';
+          dir.isSitting = true;
+          dir.pathQueue = [];
+          dir.onArriveCallback = null;
+          dir.boatTarget = null;
+          dir.x = VILLAGE_BOAT_CONFIG.mooredPos.x;
+          dir.y = VILLAGE_BOAT_CONFIG.mooredPos.y;
+          dir.facing = 'right';
+          dir.statusBubble = '🚣 Yuk dayung!';
+          dir.bubbleClearTimer = 2.2;
+          manualPanRef.current = false;
+          playRetroTone('boat', fxEnabledRef.current);
+        };
+
+        const startTram = (fromStation = false) => {
+          dir.activity = 'tram';
+          dir.isSitting = true;
+          dir.pathQueue = [];
+          dir.onArriveCallback = null;
+          if (fromStation || tramXRef.current < 80 || tramXRef.current > VILLAGE_W - 220) {
+            tramXRef.current = 200;
+          }
+          dir.x = tramXRef.current + 124;
+          dir.y = VILLAGE_TRAM_CONFIG.rideY;
+          dir.facing = 'right';
+          dir.statusBubble = '🚋 Berangkat naik trem!';
+          dir.bubbleClearTimer = 2.4;
+          manualPanRef.current = false;
+          playRetroTone('tram', fxEnabledRef.current);
+        };
+
+        const triggerShoot = () => {
+          if (basketballRef.current.shot) return;
+          dir.facing = 'up';
+          basketballRef.current.shot = {
+            sx: dir.x,
+            sy: dir.y - 10,
+            progress: 0,
+            isThree: dir.y >= VILLAGE_BASKETBALL_CONFIG.threePointY,
+          };
+          playRetroTone('click', fxEnabledRef.current);
+        };
+
+        // 1. Klik Papan Info Desa -> buka modal info web & daftar fitur
+        if (isPointInNoticeBoard(pt.x, pt.y) && dir) {
+          const spot = VILLAGE_NOTICE_BOARD.visitSpot;
+          const openGuide = () => {
+            dir.facing = 'up';
+            playRetroTone('greet', fxEnabledRef.current);
+            onOpenVillageGuideRef.current?.();
+          };
+          if (Math.hypot(dir.x - spot.x, dir.y - spot.y) <= 44) {
+            openGuide();
+          } else {
+            manualPanRef.current = false;
+            dir.targetMarker = { x: spot.x, y: spot.y, ttl: 0.9 };
+            dir.pathQueue = buildVillagePath(dir.x, dir.y, spot);
+            dir.onArriveCallback = openGuide;
+            playRetroTone('click', fxEnabledRef.current);
+          }
+          return;
+        }
+
+        // 2. Klik Perahu di Dermaga Danau -> jalan ke dermaga lalu naik perahu
+        if (isPointInBoatDock(pt.x, pt.y) && dir) {
+          const dp = VILLAGE_BOAT_CONFIG.dockPoint;
+          if (Math.hypot(dir.x - dp.x, dir.y - dp.y) <= 44) {
+            startBoat();
+          } else {
+            manualPanRef.current = false;
+            dir.targetMarker = { x: dp.x, y: dp.y, ttl: 0.9 };
+            dir.pathQueue = buildVillagePath(dir.x, dir.y, dp);
+            dir.onArriveCallback = startBoat;
+            playRetroTone('click', fxEnabledRef.current);
+          }
+          return;
+        }
+
+        // 3. Klik Trem Wisata yang sedang lewat -> langsung naik trem!
+        if (isPointOnTram(pt.x, pt.y) && dir) {
+          startTram(false);
+          return;
+        }
+
+        // 3b. Klik Stasiun Trem / Peron Stasiun -> jalan ke stasiun lalu naik trem!
+        if (isPointOnStationPlatform(pt.x, pt.y) && dir) {
+          const spot = VILLAGE_TRAM_CONFIG.stationDropSpot;
+          const sb = VILLAGE_TRAM_CONFIG.stationNearBox;
+          const alreadyNear =
+            dir.x >= sb.x && dir.x <= sb.x + sb.w && dir.y >= sb.y && dir.y <= sb.y + sb.h;
+          if (alreadyNear) {
+            startTram(true);
+          } else {
+            manualPanRef.current = false;
+            dir.targetMarker = { x: spot.x, y: spot.y, ttl: 0.9 };
+            dir.pathQueue = buildVillagePath(dir.x, dir.y, spot);
+            dir.onArriveCallback = () => startTram(true);
+            playRetroTone('click', fxEnabledRef.current);
+          }
+          return;
+        }
+
+        // 4. Klik Ring Basket -> lempar bola!
+        if (isPointInBasketballHoop(pt.x, pt.y) && dir) {
+          const court = VILLAGE_BASKETBALL_CONFIG.courtZone;
+          const onCourt =
+            dir.x >= court.x &&
+            dir.x <= court.x + court.w &&
+            dir.y >= court.y &&
+            dir.y <= court.y + court.h;
+          if (onCourt) {
+            triggerShoot();
+          } else {
+            const spot = VILLAGE_BASKETBALL_CONFIG.defaultShootSpot;
+            manualPanRef.current = false;
+            dir.targetMarker = { x: spot.x, y: spot.y, ttl: 0.9 };
+            dir.pathQueue = buildVillagePath(dir.x, dir.y, spot);
+            dir.onArriveCallback = triggerShoot;
+            playRetroTone('click', fxEnabledRef.current);
+          }
+          return;
+        }
+
+        // 5. Klik Bangku Taman / Kursi Patio / Kayu Api Unggun -> berjalan & duduk
+        const hitSeat = hitTestVillageSeat(pt.x, pt.y);
+        if (hitSeat && dir) {
+          const sitNow = () => {
+            dir.standBackSpot = { x: hitSeat.approachSpot.x, y: hitSeat.approachSpot.y };
+            dir.x = hitSeat.seatSpot.x;
+            dir.y = hitSeat.seatSpot.y;
+            dir.facing = hitSeat.facing;
+            dir.pathQueue = [];
+            dir.onArriveCallback = null;
+            dir.isMoving = false;
+            dir.isSitting = true;
+            dir.activity = 'sit';
+            dir.statusBubble = hitSeat.bubble;
+            dir.bubbleClearTimer = 0;
+            playRetroTone('approve', fxEnabledRef.current);
+          };
+          if (Math.hypot(dir.x - hitSeat.approachSpot.x, dir.y - hitSeat.approachSpot.y) <= 40) {
+            sitNow();
+          } else {
+            manualPanRef.current = false;
+            dir.targetMarker = { x: hitSeat.approachSpot.x, y: hitSeat.approachSpot.y, ttl: 0.9 };
+            dir.pathQueue = buildVillagePath(dir.x, dir.y, hitSeat.approachSpot);
+            dir.onArriveCallback = sitNow;
+            playRetroTone('click', fxEnabledRef.current);
+          }
+          return;
+        }
+
+        const hitPet = hitTestPet(pt.x, pt.y);
+        if (hitPet) {
+          playRetroTone('pet', fxEnabledRef.current);
+          hitPet.statusBubble =
+            hitPet.purrs[Math.floor(Math.random() * hitPet.purrs.length)];
+          hitPet.bubbleClearTimer = 2.8;
+          spawnParticles(particlesRef.current, { type: 'handoff', x: hitPet.x, y: hitPet.y });
+          return;
+        }
+
+        const hitVillager = hitTestVillager(pt.x, pt.y);
+        if (hitVillager) {
+          playRetroTone('greet', fxEnabledRef.current);
+          if (dir) {
+            hitVillager.facing = resolveFacing(dir.x - hitVillager.x, dir.y - hitVillager.y, hitVillager.facing);
+          }
+          hitVillager.statusBubble =
+            VILLAGER_GREETINGS[Math.floor(Math.random() * VILLAGER_GREETINGS.length)];
+          hitVillager.bubbleClearTimer = 2.6;
+          return;
+        }
+
+        const hitBld = hitTestBuilding(pt.x, pt.y);
+        if (hitBld && dir) {
+          if (hitBld.id === 'station') {
+            const spot = VILLAGE_TRAM_CONFIG.stationDropSpot;
+            if (Math.hypot(dir.x - spot.x, dir.y - spot.y) <= 50) {
+              startTram();
+            } else {
+              manualPanRef.current = false;
+              dir.targetMarker = { x: spot.x, y: spot.y, ttl: 0.9 };
+              dir.pathQueue = buildVillagePath(dir.x, dir.y, spot);
+              dir.onArriveCallback = startTram;
+              playRetroTone('click', fxEnabledRef.current);
+            }
+            return;
+          }
+          if (hitBld.enterable && hitBld.entrySpot) {
+            const entry = hitBld.entrySpot;
+            if (Math.hypot(dir.x - entry.x, dir.y - entry.y) <= 32) {
+              onEnterOfficeRef.current?.();
+            } else {
+              dir.isSitting = false;
+              dir.targetMarker = { x: entry.x, y: entry.y, ttl: 0.9 };
+              dir.pathQueue = buildVillagePath(dir.x, dir.y, entry);
+              dir.onArriveCallback = () => {
+                onEnterOfficeRef.current?.();
+              };
+              playRetroTone('click', fxEnabledRef.current);
+            }
+            return;
+          }
+          if (hitBld.visitSpot) {
+            const spot = hitBld.visitSpot;
+            if (Math.hypot(dir.x - spot.x, dir.y - spot.y) <= 36) {
+              dir.facing = 'up';
+              playRetroTone('greet', fxEnabledRef.current);
+              onVillageNoticeRef.current?.(hitBld.infoBubble || hitBld.name);
+            } else {
+              dir.isSitting = false;
+              dir.targetMarker = { x: spot.x, y: spot.y, ttl: 0.9 };
+              dir.pathQueue = buildVillagePath(dir.x, dir.y, spot);
+              dir.onArriveCallback = () => {
+                dir.facing = 'up';
+                playRetroTone('greet', fxEnabledRef.current);
+                onVillageNoticeRef.current?.(hitBld.infoBubble || hitBld.name);
+              };
+              playRetroTone('click', fxEnabledRef.current);
+            }
+            return;
+          }
+        }
+
+        const clampedX = Math.max(40, Math.min(VILLAGE_W - 40, pt.x));
+        const clampedY = Math.max(120, Math.min(VILLAGE_H - 40, pt.y));
+        if (dir) {
+          manualPanRef.current = false;
+          dir.isSitting = false;
+          dir.onArriveCallback = null;
+          dir.targetMarker = { x: clampedX, y: clampedY, ttl: 1.0 };
+          dir.pathQueue = buildVillagePath(dir.x, dir.y, { x: clampedX, y: clampedY });
+          playRetroTone('click', fxEnabledRef.current);
+        }
+        return;
+      }
+
+      // === SCENE OFFICE ===
       const hit = hitTestNpc(pt.x, pt.y);
       if (hit) {
         playRetroTone('greet', fxEnabledRef.current);
@@ -1285,7 +2095,6 @@ export default function OfficeCanvas2D({
       const hitAmb = hitTestAmbient(pt.x, pt.y);
       if (hitAmb) {
         playRetroTone('greet', fxEnabledRef.current);
-        const dir = directorRef?.current;
         if (dir) {
           hitAmb.facing = resolveFacing(dir.x - hitAmb.x, dir.y - hitAmb.y, hitAmb.facing);
         }
@@ -1295,10 +2104,31 @@ export default function OfficeCanvas2D({
         return;
       }
 
+      // Klik pintu keluar utama Office -> berjalan ke pintu lalu keluar ke Village
+      if (isPointInOfficeExit(pt.x, pt.y)) {
+        onClearInspector?.();
+        const exitSpot = WAYPOINTS.officeExitDoor;
+        if (dir) {
+          const wasSitting = Boolean(dir.isSitting);
+          dir.isSitting = false;
+          if (wasSitting) onDirectorStandRef.current?.();
+          if (Math.hypot(dir.x - exitSpot.x, dir.y - exitSpot.y) <= 28) {
+            onExitToVillageRef.current?.();
+          } else {
+            dir.targetMarker = { x: exitSpot.x, y: exitSpot.y, ttl: 0.9 };
+            dir.pathQueue = buildOfficePath(dir.x, dir.y, exitSpot);
+            dir.onArriveCallback = () => {
+              onExitToVillageRef.current?.();
+            };
+            playRetroTone('click', fxEnabledRef.current);
+          }
+        }
+        return;
+      }
+
       // Klik kursi atau laptop Director -> Director berjalan duduk & buka panel Perintah Director
       if (isPointInDirectorSeat(pt.x, pt.y)) {
         onClearInspector?.();
-        const dir = directorRef?.current;
         const seat = MEETING_SEATS.director;
         if (dir) {
           if (Math.hypot(dir.x - seat.x, dir.y - seat.y) <= 12) {
@@ -1332,7 +2162,6 @@ export default function OfficeCanvas2D({
       onClearInspector?.();
       const clampedX = Math.max(45, Math.min(WORLD_W - 45, pt.x));
       const clampedY = Math.max(45, Math.min(WORLD_H - 45, pt.y));
-      const dir = directorRef?.current;
       if (dir) {
         const wasSitting = Boolean(dir.isSitting);
         dir.isSitting = false;
@@ -1353,6 +2182,45 @@ export default function OfficeCanvas2D({
     canvas.addEventListener('click', onClick);
 
     const update = (dt) => {
+      if (transitionCooldownRef.current > 0) {
+        transitionCooldownRef.current = Math.max(0, transitionCooldownRef.current - dt);
+      }
+      if (transitionFadeRef.current > 0) {
+        transitionFadeRef.current = Math.max(0, transitionFadeRef.current - dt * 4.2);
+      }
+
+      const isVillage = sceneRef.current === 'village';
+      const activeColliders = isVillage ? VILLAGE_COLLIDERS : OFFICE_COLLIDERS;
+
+      // Update posisi Trem Wisata Desa yang tersinkronisasi + fisika bola basket
+      if (isVillage) {
+        tramXRef.current += VILLAGE_TRAM_CONFIG.speed * dt;
+        if (tramXRef.current > VILLAGE_W + 260) {
+          tramXRef.current = -VILLAGE_TRAM_CONFIG.startOffset;
+        }
+
+        const bb = basketballRef.current;
+        if (bb.swishTimer > 0) bb.swishTimer = Math.max(0, bb.swishTimer - dt);
+        if (bb.shot) {
+          bb.shot.progress += dt * 1.9;
+          if (bb.shot.progress >= 1) {
+            const pts = bb.shot.isThree ? 3 : 2;
+            bb.score += pts;
+            bb.swishTimer = 0.6;
+            const hoop = VILLAGE_BASKETBALL_CONFIG.hoopTarget;
+            spawnParticles(particlesRef.current, { type: 'confetti', x: hoop.x, y: hoop.y });
+            playRetroTone('basketball', fxEnabledRef.current);
+            if (directorRef?.current) {
+              directorRef.current.statusBubble = bb.shot.isThree
+                ? `🏀 3 POIN! 🔥 (${bb.score})`
+                : `🏀 SWISH! +2 (${bb.score})`;
+              directorRef.current.bubbleClearTimer = 2.4;
+            }
+            bb.shot = null;
+          }
+        }
+      }
+
       // Kuras antrean efek partikel (confetti QA / handoff sparkle)
       if (fxEventsRef?.current && fxEventsRef.current.length > 0) {
         const queued = fxEventsRef.current.splice(0, fxEventsRef.current.length);
@@ -1364,50 +2232,134 @@ export default function OfficeCanvas2D({
       const dirSpeed = 220;
 
       if (dir) {
-        let vx = 0;
-        let vy = 0;
-        if (keys['w'] || keys['arrowup']) vy -= 1;
-        if (keys['s'] || keys['arrowdown']) vy += 1;
-        if (keys['a'] || keys['arrowleft']) vx -= 1;
-        if (keys['d'] || keys['arrowright']) vx += 1;
+        if (dir.bubbleClearTimer > 0) {
+          dir.bubbleClearTimer -= dt;
+          if (dir.bubbleClearTimer <= 0 && dir.activity !== 'sit') {
+            dir.statusBubble = '';
+          }
+        }
 
-        if (vx !== 0 || vy !== 0) {
-          const len = Math.hypot(vx, vy);
-          const nextX = dir.x + (vx / len) * dirSpeed * dt;
-          const nextY = dir.y + (vy / len) * dirSpeed * dt;
+        if (isVillage && dir.activity === 'tram') {
+          dir.x = tramXRef.current + 124;
+          dir.y = VILLAGE_TRAM_CONFIG.rideY;
+          dir.facing = 'right';
+          dir.isMoving = false;
+          dir.isSitting = true;
+        } else if (isVillage && dir.activity === 'boat') {
+          let bx = 0;
+          let by = 0;
+          if (keys['w'] || keys['arrowup']) by -= 1;
+          if (keys['s'] || keys['arrowdown']) by += 1;
+          if (keys['a'] || keys['arrowleft']) bx -= 1;
+          if (keys['d'] || keys['arrowright']) bx += 1;
+          const boatSpeed = 165;
 
-          if (!isPositionBlocked(nextX, dir.y)) dir.x = nextX;
-          if (!isPositionBlocked(dir.x, nextY)) dir.y = nextY;
-
-          dir.facing = resolveFacing(vx, vy, dir.facing);
-          dir.isMoving = true;
-          dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
-        } else if (dir.pathQueue && dir.pathQueue.length > 0) {
-          const nextPt = dir.pathQueue[0];
-          const dx = nextPt.x - dir.x;
-          const dy = nextPt.y - dir.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist < 6) {
-            dir.x = nextPt.x;
-            dir.y = nextPt.y;
-            dir.pathQueue.shift();
-            if (dir.pathQueue.length === 0) {
+          if (bx !== 0 || by !== 0) {
+            manualPanRef.current = false;
+            dir.boatTarget = null;
+            const len = Math.hypot(bx, by);
+            const nx = dir.x + (bx / len) * boatSpeed * dt;
+            const ny = dir.y + (by / len) * boatSpeed * dt;
+            if (isSafeBoatWater(nx, dir.y)) dir.x = nx;
+            if (isSafeBoatWater(dir.x, ny)) dir.y = ny;
+            dir.facing = resolveFacing(bx, by, dir.facing);
+            dir.isMoving = true;
+          } else if (dir.boatTarget) {
+            const dx = dir.boatTarget.x - dir.x;
+            const dy = dir.boatTarget.y - dir.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 8) {
+              dir.boatTarget = null;
               dir.isMoving = false;
-              if (dir.onArriveCallback) {
-                const cb = dir.onArriveCallback;
-                dir.onArriveCallback = null;
-                cb();
+            } else {
+              const nx = dir.x + (dx / dist) * boatSpeed * dt;
+              const ny = dir.y + (dy / dist) * boatSpeed * dt;
+              let moved = false;
+              if (isSafeBoatWater(nx, dir.y)) {
+                dir.x = nx;
+                moved = true;
+              }
+              if (isSafeBoatWater(dir.x, ny)) {
+                dir.y = ny;
+                moved = true;
+              }
+              if (moved) {
+                dir.facing = resolveFacing(dx, dy, dir.facing);
+                dir.isMoving = true;
+              } else {
+                dir.boatTarget = null;
+                dir.isMoving = false;
               }
             }
           } else {
-            dir.x += (dx / dist) * dirSpeed * dt;
-            dir.y += (dy / dist) * dirSpeed * dt;
-            dir.facing = resolveFacing(dx, dy, dir.facing);
+            dir.isMoving = false;
+          }
+          dir.isSitting = true;
+        } else {
+          let vx = 0;
+          let vy = 0;
+          if (keys['w'] || keys['arrowup']) vy -= 1;
+          if (keys['s'] || keys['arrowdown']) vy += 1;
+          if (keys['a'] || keys['arrowleft']) vx -= 1;
+          if (keys['d'] || keys['arrowright']) vx += 1;
+
+          if (vx !== 0 || vy !== 0) {
+            manualPanRef.current = false;
+            const len = Math.hypot(vx, vy);
+            const nextX = dir.x + (vx / len) * dirSpeed * dt;
+            const nextY = dir.y + (vy / len) * dirSpeed * dt;
+
+            if (!isPositionBlocked(nextX, dir.y, activeColliders)) dir.x = nextX;
+            if (!isPositionBlocked(dir.x, nextY, activeColliders)) dir.y = nextY;
+
+            dir.facing = resolveFacing(vx, vy, dir.facing);
             dir.isMoving = true;
             dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
+
+            // Transisi otomatis saat berjalan masuk/keluar pintu gedung dengan keyboard
+            if (transitionCooldownRef.current <= 0) {
+              if (isVillage && vy < 0 && OFFICE_HQ_BUILDING) {
+                const dz = OFFICE_HQ_BUILDING.doorZone;
+                if (dir.x >= dz.x && dir.x <= dz.x + dz.w && dir.y <= dz.y + dz.h - 4) {
+                  onEnterOfficeRef.current?.();
+                }
+              } else if (!isVillage && vy > 0) {
+                if (
+                  dir.x >= OFFICE_EXIT_ZONE.x + 4 &&
+                  dir.x <= OFFICE_EXIT_ZONE.x + OFFICE_EXIT_ZONE.w - 4 &&
+                  dir.y >= OFFICE_EXIT_ZONE.y + 24
+                ) {
+                  onExitToVillageRef.current?.();
+                }
+              }
+            }
+          } else if (dir.pathQueue && dir.pathQueue.length > 0) {
+            const nextPt = dir.pathQueue[0];
+            const dx = nextPt.x - dir.x;
+            const dy = nextPt.y - dir.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 6) {
+              dir.x = nextPt.x;
+              dir.y = nextPt.y;
+              dir.pathQueue.shift();
+              if (dir.pathQueue.length === 0) {
+                dir.isMoving = false;
+                if (dir.onArriveCallback) {
+                  const cb = dir.onArriveCallback;
+                  dir.onArriveCallback = null;
+                  cb();
+                }
+              }
+            } else {
+              dir.x += (dx / dist) * dirSpeed * dt;
+              dir.y += (dy / dist) * dirSpeed * dt;
+              dir.facing = resolveFacing(dx, dy, dir.facing);
+              dir.isMoving = true;
+              dir.walkPhase = (dir.walkPhase || 0) + dt * 14;
+            }
+          } else {
+            dir.isMoving = false;
           }
-        } else {
-          dir.isMoving = false;
         }
 
         if (dir.targetMarker && dir.targetMarker.ttl > 0) {
@@ -1418,8 +2370,8 @@ export default function OfficeCanvas2D({
           dir.actionTimer = Math.max(0, dir.actionTimer - dt);
         }
 
-        // Suara langkah kaki ritmis saat Director berjalan (WASD / klik lantai)
-        if (dir.isMoving) {
+        // Suara langkah kaki ritmis saat Director berjalan (bukan saat naik perahu/trem)
+        if (dir.isMoving && !dir.activity) {
           stepSfxTimerRef.current -= dt;
           if (stepSfxTimerRef.current <= 0) {
             playRetroTone('step', fxEnabledRef.current);
@@ -1429,13 +2381,18 @@ export default function OfficeCanvas2D({
           stepSfxTimerRef.current = 0.05;
         }
 
-        // Smooth camera follow Director ketika zoom > 1
-        if (followDirector && camRef.current.zoom > 1) {
+        // Smooth camera follow Director (otomatis di Village 3000x2000 kecuali sedang pan manual)
+        const mapW = isVillage ? VILLAGE_W : WORLD_W;
+        const mapH = isVillage ? VILLAGE_H : WORLD_H;
+        const shouldFollow = isVillage
+          ? !manualPanRef.current
+          : followDirector && camRef.current.zoom > 1;
+        if (shouldFollow) {
           const viewW = WORLD_W / camRef.current.zoom;
           const viewH = WORLD_H / camRef.current.zoom;
-          const targetCamX = Math.max(0, Math.min(WORLD_W - viewW, dir.x - viewW / 2));
-          const targetCamY = Math.max(0, Math.min(WORLD_H - viewH, dir.y - viewH / 2));
-          const lerp = Math.min(1, dt * 6);
+          const targetCamX = Math.max(0, Math.min(mapW - viewW, dir.x - viewW / 2));
+          const targetCamY = Math.max(0, Math.min(mapH - viewH, dir.y - viewH / 2));
+          const lerp = Math.min(1, dt * 6.5);
           camRef.current.x += (targetCamX - camRef.current.x) * lerp;
           camRef.current.y += (targetCamY - camRef.current.y) * lerp;
         }
@@ -1534,8 +2491,105 @@ export default function OfficeCanvas2D({
         }
       });
 
-      // Update karyawan ambient (Non-AI): duduk kerja di komputer & sesekali beraktivitas
-      if (showAmbientRef.current && ambientRef.current) {
+      // Update hewan peliharaan desa (Mochi si Kucing & Bubu si Shiba)
+      if (isVillage && petsRef.current) {
+        petsRef.current.forEach((pet) => {
+          if (pet.bubbleClearTimer > 0) {
+            pet.bubbleClearTimer -= dt;
+            if (pet.bubbleClearTimer <= 0) pet.statusBubble = '';
+          }
+          if (pet.state === 'WALKING' && pet.pathQueue.length > 0) {
+            const pt = pet.pathQueue[0];
+            const dx = pt.x - pet.x;
+            const dy = pt.y - pet.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 4) {
+              pet.x = pt.x;
+              pet.y = pt.y;
+              pet.pathQueue.shift();
+              if (pet.pathQueue.length === 0) {
+                pet.state = 'IDLE';
+                pet.stateTimer = 5 + Math.random() * 7;
+                if (Math.random() < 0.35) {
+                  pet.statusBubble = pet.purrs[0];
+                  pet.bubbleClearTimer = 2.2;
+                }
+              }
+            } else {
+              pet.x += (dx / dist) * 58 * dt;
+              pet.y += (dy / dist) * 58 * dt;
+              pet.facing = dx < 0 ? 'left' : 'right';
+              pet.walkPhase = (pet.walkPhase || 0) + dt * 12;
+            }
+          } else {
+            pet.stateTimer -= dt;
+            if (pet.stateTimer <= 0) {
+              const spot = pet.spots[Math.floor(Math.random() * pet.spots.length)];
+              if (Math.hypot(spot.x - pet.x, spot.y - pet.y) > 20) {
+                pet.pathQueue = buildVillagePath(pet.x, pet.y, spot);
+                pet.state = 'WALKING';
+              } else {
+                pet.stateTimer = 4 + Math.random() * 5;
+              }
+            }
+          }
+        });
+      }
+
+      // Update karyawan ambient (Non-AI) saat di Office, atau warga desa saat di Village
+      if (showAmbientRef.current && isVillage && villagersRef.current) {
+        const villagerSpeed = 72;
+        villagersRef.current.forEach((v) => {
+          if (v.bubbleClearTimer > 0) {
+            v.bubbleClearTimer -= dt;
+            if (v.bubbleClearTimer <= 0) v.statusBubble = '';
+          }
+          if (v.state === 'WALKING' && v.pathQueue.length > 0) {
+            const pt = v.pathQueue[0];
+            const dx = pt.x - v.x;
+            const dy = pt.y - v.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 4) {
+              v.x = pt.x;
+              v.y = pt.y;
+              v.pathQueue.shift();
+              if (v.pathQueue.length === 0) {
+                v.state = 'IDLE';
+                v.facing = v.pendingFacing || 'down';
+                if (v.pendingBubble) {
+                  v.statusBubble = v.pendingBubble;
+                  v.bubbleClearTimer = 2.8;
+                }
+                v.stateTimer = 5 + Math.random() * 8;
+              }
+            } else {
+              v.x += (dx / dist) * villagerSpeed * dt;
+              v.y += (dy / dist) * villagerSpeed * dt;
+              v.facing = resolveFacing(dx, dy, v.facing);
+              v.walkPhase = (v.walkPhase || 0) + dt * 10;
+            }
+          } else {
+            v.stateTimer -= dt;
+            if (v.stateTimer <= 0) {
+              const act =
+                VILLAGE_ACTIVITIES[Math.floor(Math.random() * VILLAGE_ACTIVITIES.length)];
+              if (Math.hypot(act.spot.x - v.x, act.spot.y - v.y) > 20) {
+                v.pathQueue = buildVillagePath(v.x, v.y, act.spot);
+                v.state = 'WALKING';
+                v.pendingFacing = act.facing;
+                v.pendingBubble =
+                  Math.random() < 0.55
+                    ? act.bubble
+                    : v.bubbles?.[Math.floor(Math.random() * v.bubbles.length)] || '';
+              } else {
+                v.stateTimer = 4 + Math.random() * 5;
+              }
+            }
+          }
+        });
+      }
+
+      if (showAmbientRef.current && !isVillage && ambientRef.current) {
         const ambSpeed = 82;
         ambientRef.current.forEach((staff) => {
           if (staff.hitTimer > 0) staff.hitTimer = Math.max(0, staff.hitTimer - dt);
@@ -1630,133 +2684,245 @@ export default function OfficeCanvas2D({
 
       const timeSec = now / 1000;
       const { x: camX, y: camY, zoom } = camRef.current;
+      const isVillage = sceneRef.current === 'village';
+      const dir = directorRef?.current;
 
       ctx.clearRect(0, 0, WORLD_W, WORLD_H);
       ctx.save();
       ctx.scale(zoom, zoom);
       ctx.translate(-camX, -camY);
 
-      ctx.drawImage(bgBufferRef.current, 0, 0);
-
-      // Animasi detail hidup kantor: uap kopi, LED server, dan cahaya TV/Stage
-      ctx.save();
-      [
-        { x: 127, y: 410 }, // Mesin kopi Pantry
-        { x: 201, y: 1138 }, // Mesin kopi Full-Stack Lab
-        { x: 1556, y: 60 }, // Mesin espresso Office Cafe
-      ].forEach((steam, idx) => {
-        const phase = (timeSec * 1.4 + idx * 0.7) % 1;
-        ctx.fillStyle = `rgba(255, 255, 255, ${(1 - phase) * 0.55})`;
-        ctx.beginPath();
-        ctx.arc(steam.x + Math.sin(timeSec * 4 + idx) * 2.5, steam.y - phase * 12, 2.2 + phase * 1.5, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // LED berkedip di mini server rack Kael & AI Server Lab
-      [1136, 1148, 1160, 1172].forEach((ly, idx) => {
-        const blink = Math.floor(timeSec * (2.5 + idx * 0.8) + idx) % 2 === 0;
-        ctx.fillStyle = blink ? (idx % 2 === 0 ? '#38bdf8' : '#4ade80') : '#1e293b';
-        ctx.fillRect(166, ly, 4, 3);
-      });
-      [1055, 1110, 1165, 1220].forEach((sx, rIdx) => {
-        [59, 71, 83, 95].forEach((ry, idx) => {
-          const blink = Math.floor(timeSec * (2 + rIdx * 0.6 + idx * 0.4) + rIdx + idx) % 2 === 0;
-          ctx.fillStyle = blink ? (idx % 2 === 0 ? '#38bdf8' : '#4ade80') : '#0f172a';
-          ctx.fillRect(sx + 34, ry, 5, 3);
+      if (isVillage) {
+        ctx.drawImage(villageBgBufferRef.current, 0, 0);
+        drawVillageDynamicOverlay(ctx, timeSec, dir, {
+          tramX: tramXRef.current,
+          tramActive: dir?.activity === 'tram',
+          boatActive: dir?.activity === 'boat',
+          basketball: basketballRef.current,
         });
-      });
 
-      // Animasi sinyal lembut di TV Recreation Area & layar Townhall
-      const tvPulse = 0.12 + 0.08 * Math.sin(timeSec * 3.2);
-      ctx.fillStyle = `rgba(56, 189, 248, ${tvPulse})`;
-      ctx.fillRect(492, 795, 90, 15);
-      ctx.fillStyle = `rgba(125, 211, 252, ${tvPulse * 1.1})`;
-      ctx.fillRect(1788, 938, 16, 154);
-      ctx.restore();
-
-      // Render animasi layar monitor menyala untuk AI Agent WORKING & staf ambient SITTING_DESK
-      const npcs = npcRef?.current || [];
-      const ambList = showAmbientRef.current ? ambientRef.current || [] : [];
-      npcs.forEach((n) => {
-        if (n.state === 'WORKING') {
-          drawActiveMonitorOverlay(ctx, n, timeSec);
+        if (dir?.targetMarker && dir.targetMarker.ttl > 0) {
+          ctx.save();
+          ctx.strokeStyle = '#ec4899';
+          ctx.lineWidth = 2.5;
+          ctx.globalAlpha = Math.max(0, dir.targetMarker.ttl);
+          ctx.beginPath();
+          ctx.arc(
+            dir.targetMarker.x,
+            dir.targetMarker.y,
+            14 * (1.2 - dir.targetMarker.ttl),
+            0,
+            Math.PI * 2
+          );
+          ctx.stroke();
+          ctx.restore();
         }
-      });
-      ambList.forEach((s) => {
-        if (s.state === 'SITTING_DESK') {
-          drawActiveMonitorOverlay(ctx, s, timeSec * 0.75);
-        }
-      });
 
-      const dir = directorRef?.current;
+        const villagers = showAmbientRef.current ? villagersRef.current || [] : [];
+        const pets = petsRef.current || [];
+        const villageEntities = [
+          ...(dir ? [{ ...dir, isDirector: true }] : []),
+          ...pets.map((p) => ({ ...p, isPet: true })),
+          ...villagers.map((v) => ({ ...v, isDirector: false, isAmbient: true })),
+        ].sort((a, b) => (a.y || 0) - (b.y || 0));
 
-      // Indikator interaktif pada kursi Director saat Director belum duduk
-      if (dir && !dir.isSitting) {
-        const seat = MEETING_SEATS.director;
-        const distToSeat = Math.hypot(dir.x - seat.x, dir.y - seat.y);
-        const pulse = 0.55 + 0.45 * Math.sin(timeSec * 4.2);
-        const isNearSeat = distToSeat <= 72;
+        villageEntities.forEach((ent) => {
+          if (ent.isPet) {
+            drawVillagePet(ctx, ent, timeSec);
+          } else {
+            if (ent.isDirector && ent.activity === 'boat') {
+              drawVillageBoat(ctx, ent.x, ent.y + 8, timeSec, Boolean(ent.isMoving), ent.facing);
+            }
+            drawRPGCharacter(ctx, ent, timeSec, ent.isDirector, false);
+          }
+        });
 
+        // Render partikel (mis. efek elus kucing Mochi)
+        particlesRef.current.forEach((p) => {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
+          ctx.fillStyle = p.color;
+          ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+          ctx.restore();
+        });
+      } else {
+        ctx.drawImage(bgBufferRef.current, 0, 0);
+
+        // Animasi detail hidup kantor: uap kopi, LED server, dan cahaya TV/Stage
         ctx.save();
-        ctx.strokeStyle = isNearSeat ? '#f472b6' : '#818cf8';
-        ctx.lineWidth = isNearSeat ? 2.5 : 2;
-        ctx.globalAlpha = 0.45 + 0.4 * pulse;
-        ctx.beginPath();
-        ctx.roundRect(78, 166, 26, 30, 6);
-        ctx.stroke();
+        [
+          { x: 127, y: 410 }, // Mesin kopi Pantry
+          { x: 201, y: 1138 }, // Mesin kopi Full-Stack Lab
+          { x: 1556, y: 60 }, // Mesin espresso Office Cafe
+        ].forEach((steam, idx) => {
+          const phase = (timeSec * 1.4 + idx * 0.7) % 1;
+          ctx.fillStyle = `rgba(255, 255, 255, ${(1 - phase) * 0.55})`;
+          ctx.beginPath();
+          ctx.arc(
+            steam.x + Math.sin(timeSec * 4 + idx) * 2.5,
+            steam.y - phase * 12,
+            2.2 + phase * 1.5,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        });
 
-        const hintText = isNearSeat ? '[E] / Klik Duduk' : '🪑 Meja Director';
-        ctx.globalAlpha = 0.95;
-        ctx.font = 'bold 10px "Inter", system-ui, sans-serif';
-        const hw = ctx.measureText(hintText).width + 14;
-        const hy = 144 + Math.sin(timeSec * 3.5) * 2;
-        ctx.fillStyle = isNearSeat ? 'rgba(236, 72, 153, 0.92)' : 'rgba(15, 23, 42, 0.85)';
-        ctx.beginPath();
-        ctx.roundRect(seat.x - hw / 2 + 8, hy, hw, 18, 7);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText(hintText, seat.x + 8, hy + 12.5);
+        // LED berkedip di mini server rack Kael & AI Server Lab
+        [1136, 1148, 1160, 1172].forEach((ly, idx) => {
+          const blink = Math.floor(timeSec * (2.5 + idx * 0.8) + idx) % 2 === 0;
+          ctx.fillStyle = blink ? (idx % 2 === 0 ? '#38bdf8' : '#4ade80') : '#1e293b';
+          ctx.fillRect(166, ly, 4, 3);
+        });
+        [1055, 1110, 1165, 1220].forEach((sx, rIdx) => {
+          [59, 71, 83, 95].forEach((ry, idx) => {
+            const blink = Math.floor(timeSec * (2 + rIdx * 0.6 + idx * 0.4) + rIdx + idx) % 2 === 0;
+            ctx.fillStyle = blink ? (idx % 2 === 0 ? '#38bdf8' : '#4ade80') : '#0f172a';
+            ctx.fillRect(sx + 34, ry, 5, 3);
+          });
+        });
+
+        // Animasi sinyal lembut di TV Recreation Area & layar Townhall
+        const tvPulse = 0.12 + 0.08 * Math.sin(timeSec * 3.2);
+        ctx.fillStyle = `rgba(56, 189, 248, ${tvPulse})`;
+        ctx.fillRect(492, 795, 90, 15);
+        ctx.fillStyle = `rgba(125, 211, 252, ${tvPulse * 1.1})`;
+        ctx.fillRect(1788, 938, 16, 154);
         ctx.restore();
-      }
 
-      if (dir?.targetMarker && dir.targetMarker.ttl > 0) {
-        ctx.save();
-        ctx.strokeStyle = '#ec4899';
-        ctx.lineWidth = 2.5;
-        ctx.globalAlpha = Math.max(0, dir.targetMarker.ttl);
-        ctx.beginPath();
-        ctx.arc(
-          dir.targetMarker.x,
-          dir.targetMarker.y,
-          14 * (1.2 - dir.targetMarker.ttl),
-          0,
-          Math.PI * 2
+        // Render animasi layar monitor menyala untuk AI Agent WORKING & staf ambient SITTING_DESK
+        const npcs = npcRef?.current || [];
+        const ambList = showAmbientRef.current ? ambientRef.current || [] : [];
+        npcs.forEach((n) => {
+          if (n.state === 'WORKING') {
+            drawActiveMonitorOverlay(ctx, n, timeSec);
+          }
+        });
+        ambList.forEach((s) => {
+          if (s.state === 'SITTING_DESK') {
+            drawActiveMonitorOverlay(ctx, s, timeSec * 0.75);
+          }
+        });
+
+        // Indikator pintu keluar ke peta Village di koridor selatan
+        if (dir) {
+          const exitSpot = WAYPOINTS.officeExitDoor;
+          const distExit = Math.hypot(dir.x - exitSpot.x, dir.y - exitSpot.y);
+          const isNearExit = distExit <= 78;
+          const exitPulse = 0.55 + 0.45 * Math.sin(timeSec * 4.2);
+
+          ctx.save();
+          ctx.strokeStyle = isNearExit ? '#10b981' : '#818cf8';
+          ctx.lineWidth = isNearExit ? 2.5 : 1.8;
+          ctx.globalAlpha = 0.45 + 0.4 * exitPulse;
+          ctx.beginPath();
+          ctx.roundRect(256, 1164, 84, 34, 6);
+          ctx.stroke();
+
+          const exitHint = isNearExit ? '🏡 [E] / Klik Keluar ke Village' : '🚪 Keluar ke Village';
+          ctx.globalAlpha = 0.94;
+          ctx.font = 'bold 10px "Inter", system-ui, sans-serif';
+          const ew = ctx.measureText(exitHint).width + 14;
+          const ey = 1138 + Math.sin(timeSec * 3.2) * 2;
+          ctx.fillStyle = isNearExit ? 'rgba(16, 185, 129, 0.92)' : 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(exitSpot.x - ew / 2, ey, ew, 18, 7);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.fillText(exitHint, exitSpot.x, ey + 12.5);
+          ctx.restore();
+        }
+
+        // Indikator interaktif pada kursi Director saat Director belum duduk
+        if (dir && !dir.isSitting) {
+          const seat = MEETING_SEATS.director;
+          const distToSeat = Math.hypot(dir.x - seat.x, dir.y - seat.y);
+          const pulse = 0.55 + 0.45 * Math.sin(timeSec * 4.2);
+          const isNearSeat = distToSeat <= 72;
+
+          ctx.save();
+          ctx.strokeStyle = isNearSeat ? '#f472b6' : '#818cf8';
+          ctx.lineWidth = isNearSeat ? 2.5 : 2;
+          ctx.globalAlpha = 0.45 + 0.4 * pulse;
+          ctx.beginPath();
+          ctx.roundRect(78, 166, 26, 30, 6);
+          ctx.stroke();
+
+          const hintText = isNearSeat ? '[E] / Klik Duduk' : '🪑 Meja Director';
+          ctx.globalAlpha = 0.95;
+          ctx.font = 'bold 10px "Inter", system-ui, sans-serif';
+          const hw = ctx.measureText(hintText).width + 14;
+          const hy = 144 + Math.sin(timeSec * 3.5) * 2;
+          ctx.fillStyle = isNearSeat ? 'rgba(236, 72, 153, 0.92)' : 'rgba(15, 23, 42, 0.85)';
+          ctx.beginPath();
+          ctx.roundRect(seat.x - hw / 2 + 8, hy, hw, 18, 7);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.fillText(hintText, seat.x + 8, hy + 12.5);
+          ctx.restore();
+        }
+
+        if (dir?.targetMarker && dir.targetMarker.ttl > 0) {
+          ctx.save();
+          ctx.strokeStyle = '#ec4899';
+          ctx.lineWidth = 2.5;
+          ctx.globalAlpha = Math.max(0, dir.targetMarker.ttl);
+          ctx.beginPath();
+          ctx.arc(
+            dir.targetMarker.x,
+            dir.targetMarker.y,
+            14 * (1.2 - dir.targetMarker.ttl),
+            0,
+            Math.PI * 2
+          );
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        const renderList = [
+          ...(dir ? [{ ...dir, isDirector: true }] : []),
+          ...npcs.map((n) => ({ ...n, isDirector: false })),
+          ...ambList.map((s) => ({ ...s, isDirector: false, isAmbient: true })),
+        ].sort((a, b) => (a.y || 0) - (b.y || 0));
+
+        renderList.forEach((ent) =>
+          drawRPGCharacter(ctx, ent, timeSec, ent.isDirector, ent.id === selectedNpcId)
         );
-        ctx.stroke();
+
+        // Render partikel (confetti & handoff sparkle)
+        particlesRef.current.forEach((p) => {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
+          ctx.fillStyle = p.color;
+          ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+          ctx.restore();
+        });
+      }
+
+      ctx.restore();
+
+      // Minimap interaktif & HUD aktivitas (Perahu / Trem / Duduk) saat di Village
+      if (isVillage) {
+        drawVillageActivityHud(ctx, dir);
+        drawVillageMinimap(ctx, {
+          dir,
+          villagers: showAmbientRef.current ? villagersRef.current || [] : [],
+          pets: petsRef.current || [],
+          cam: camRef.current,
+          timeSec,
+        });
+      }
+
+      // Efek fade singkat saat keluar/masuk gedung
+      if (transitionFadeRef.current > 0.01) {
+        ctx.save();
+        ctx.fillStyle = `rgba(15, 23, 42, ${transitionFadeRef.current})`;
+        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
         ctx.restore();
       }
 
-      const renderList = [
-        ...(dir ? [{ ...dir, isDirector: true }] : []),
-        ...npcs.map((n) => ({ ...n, isDirector: false })),
-        ...ambList.map((s) => ({ ...s, isDirector: false, isAmbient: true })),
-      ].sort((a, b) => (a.y || 0) - (b.y || 0));
-
-      renderList.forEach((ent) =>
-        drawRPGCharacter(ctx, ent, timeSec, ent.isDirector, ent.id === selectedNpcId)
-      );
-
-      // Render partikel (confetti & handoff sparkle)
-      particlesRef.current.forEach((p) => {
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
-        ctx.fillStyle = p.color;
-        ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
-        ctx.restore();
-      });
-
-      ctx.restore();
       animId = requestAnimationFrame(loop);
     };
 

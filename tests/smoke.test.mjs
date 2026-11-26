@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import handler from '../api/interact.js';
 import { isOutputTruncated, normalizeAgyEventLine } from '../server/agyBridge.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
-import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, CORE_AGENT_IDS, DEFAULT_AGENTS, DIRECTOR_SEAT_ZONE, EXTRA_AGENT_SLOTS, FULLSTACK_AGENT_ID, MEETING_SEATS, WAYPOINTS } from '../src/constants/officeConfig.js';
-import { buildOfficePath, isFootBlocked } from '../src/utils/pathfinding.js';
+import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, CORE_AGENT_IDS, DEFAULT_AGENTS, DIRECTOR_SEAT_ZONE, EXTRA_AGENT_SLOTS, FULLSTACK_AGENT_ID, MEETING_SEATS, OFFICE_EXIT_ZONE, WAYPOINTS } from '../src/constants/officeConfig.js';
+import { OFFICE_HQ_BUILDING, VILLAGE_ACTIVITIES, VILLAGE_BASKETBALL_CONFIG, VILLAGE_BENCHES, VILLAGE_BOAT_CONFIG, VILLAGE_BUILDINGS, VILLAGE_COLLIDERS, VILLAGE_EXTRA_SEATS, VILLAGE_H, VILLAGE_NOTICE_BOARD, VILLAGE_PETS, VILLAGE_RESIDENTS, VILLAGE_TRAM_CONFIG, VILLAGE_W, VILLAGE_WAYPOINTS } from '../src/constants/villageConfig.js';
+import { buildOfficePath, buildVillagePath, isFootBlocked } from '../src/utils/pathfinding.js';
 import {
   MAX_GRILLING_ROUNDS,
   buildAlexGrillingSop,
@@ -15,8 +16,11 @@ import {
 import {
   OFFICE_BGM_TRACKS,
   SFX_TYPES,
+  getAudioVolumes,
   playRetroTone,
+  setBgmVolume,
   setOfficeBgm,
+  setSfxVolume,
   stopOfficeBgm,
   unlockAudio,
 } from '../src/utils/audio.js';
@@ -348,16 +352,23 @@ const kaelDoneDemo = await executeAgentPrompt({
 assert.equal(detectAlexGrillingStatus(kaelDoneDemo.text), 'ready');
 assert.match(kaelDoneDemo.text, /<!DOCTYPE html>/i, 'Kael must deliver full HTML end-to-end solution after confirmation');
 
-// 9. Audio SFX & Office Lobby BGM tracks integrity
-assert.ok(OFFICE_BGM_TRACKS.length >= 4, 'Must offer multiple Office Lobby BGM tracks plus Off');
+// 9. Audio SFX, Creative BGM tracks & Volume controls integrity
+assert.ok(OFFICE_BGM_TRACKS.length >= 6, 'Must offer Sunny Village Guitar plus Office BGM tracks and Off');
 assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'off'));
+assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'village'));
 assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'lofi'));
 assert.ok(OFFICE_BGM_TRACKS.some((t) => t.id === 'rain'));
-for (const sfx of ['step', 'click', 'greet', 'start', 'work', 'handoff', 'grilling', 'approve', 'report', 'slap']) {
+for (const sfx of ['step', 'click', 'greet', 'start', 'work', 'handoff', 'grilling', 'approve', 'report', 'slap', 'boat', 'tram', 'basketball', 'pet']) {
   assert.ok(SFX_TYPES.includes(sfx), `Missing SFX type: ${sfx}`);
   playRetroTone(sfx, true); // Safe no-op in Node SSR/test env
 }
-setOfficeBgm('lofi');
+setBgmVolume(0.85);
+setSfxVolume(0.65);
+assert.deepEqual(getAudioVolumes(), { bgmVolume: 0.85, sfxVolume: 0.65 }, 'Volume controls must update state accurately');
+setBgmVolume(2.5);
+setSfxVolume(-0.4);
+assert.deepEqual(getAudioVolumes(), { bgmVolume: 1, sfxVolume: 0 }, 'Volume controls must clamp to [0, 1]');
+setOfficeBgm('village', { volume: 0.75 });
 unlockAudio();
 stopOfficeBgm();
 
@@ -371,6 +382,122 @@ assert.ok(
     MEETING_SEATS.director.y >= DIRECTOR_SEAT_ZONE.y &&
     MEETING_SEATS.director.y <= DIRECTOR_SEAT_ZONE.y + DIRECTOR_SEAT_ZONE.h,
   'DIRECTOR_SEAT_ZONE must cover Director chair coordinates'
+);
+
+// 11. Village map layout (3000x2000, 4 districts), enterable Office HQ, office exit door & village pathfinding
+assert.equal(VILLAGE_W, 3000, 'Expanded village width should be 3000');
+assert.equal(VILLAGE_H, 2000, 'Expanded village height should be 2000');
+assert.ok(OFFICE_HQ_BUILDING?.enterable, 'Virtual Office HQ must be an enterable building on the village map');
+assert.ok(VILLAGE_BUILDINGS.length >= 10, 'Expanded village should contain Office HQ plus 10 neighboring buildings across 4 districts');
+assert.equal(isFootBlocked(WAYPOINTS.officeEntrance.x, WAYPOINTS.officeEntrance.y), false, 'Office entrance spawn must be clear');
+assert.equal(isFootBlocked(WAYPOINTS.officeExitDoor.x, WAYPOINTS.officeExitDoor.y), false, 'Office exit door spot must be clear');
+assert.ok(
+  WAYPOINTS.officeExitDoor.x >= OFFICE_EXIT_ZONE.x &&
+    WAYPOINTS.officeExitDoor.x <= OFFICE_EXIT_ZONE.x + OFFICE_EXIT_ZONE.w &&
+    WAYPOINTS.officeExitDoor.y >= OFFICE_EXIT_ZONE.y &&
+    WAYPOINTS.officeExitDoor.y <= OFFICE_EXIT_ZONE.y + OFFICE_EXIT_ZONE.h,
+  'OFFICE_EXIT_ZONE must cover officeExitDoor coordinates'
+);
+const officeEntranceToSeat = buildOfficePath(
+  WAYPOINTS.officeEntrance.x,
+  WAYPOINTS.officeEntrance.y,
+  MEETING_SEATS.director
+);
+assert.ok(officeEntranceToSeat.length > 0, 'Director must be able to walk from office main door to meeting seat');
+
+for (const [wpName, wp] of Object.entries(VILLAGE_WAYPOINTS)) {
+  assert.equal(isFootBlocked(wp.x, wp.y, VILLAGE_COLLIDERS), false, `Village waypoint ${wpName} blocked`);
+  const vPath = buildVillagePath(VILLAGE_WAYPOINTS.officeFront.x, VILLAGE_WAYPOINTS.officeFront.y, wp);
+  assert.ok(vPath.length > 0, `Village path to ${wpName} must exist`);
+  let prev = VILLAGE_WAYPOINTS.officeFront;
+  for (const pt of vPath) {
+    assert.equal(isFootBlocked(pt.x, pt.y, VILLAGE_COLLIDERS), false, `Village path point to ${wpName} blocked`);
+    const dist = Math.hypot(pt.x - prev.x, pt.y - prev.y);
+    const steps = Math.max(1, Math.ceil(dist / 6));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const sx = prev.x + (pt.x - prev.x) * t;
+      const sy = prev.y + (pt.y - prev.y) * t;
+      assert.equal(
+        isFootBlocked(sx, sy, VILLAGE_COLLIDERS),
+        false,
+        `Village segment to ${wpName} blocked at (${sx.toFixed(1)}, ${sy.toFixed(1)})`
+      );
+    }
+    prev = pt;
+  }
+}
+for (const res of VILLAGE_RESIDENTS) {
+  assert.equal(isFootBlocked(res.startSpot.x, res.startSpot.y, VILLAGE_COLLIDERS), false, `Villager ${res.name} startSpot blocked`);
+}
+for (const act of VILLAGE_ACTIVITIES) {
+  assert.equal(isFootBlocked(act.spot.x, act.spot.y, VILLAGE_COLLIDERS), false, `Village activity "${act.bubble}" blocked`);
+}
+assert.equal(
+  isFootBlocked(VILLAGE_NOTICE_BOARD.visitSpot.x, VILLAGE_NOTICE_BOARD.visitSpot.y, VILLAGE_COLLIDERS),
+  false,
+  'Village notice board visitSpot blocked'
+);
+for (const pet of VILLAGE_PETS) {
+  for (const spot of pet.spots) {
+    assert.equal(isFootBlocked(spot.x, spot.y, VILLAGE_COLLIDERS), false, `Village pet ${pet.name} spot (${spot.x}, ${spot.y}) blocked`);
+  }
+}
+for (const key of ['bridgeWestCenter', 'bridgeEastCenter', 'pierTip', 'windmillFront', 'stationFront', 'foodTruckFront', 'campfireWest']) {
+  const crossing = buildVillagePath(
+    VILLAGE_WAYPOINTS.officeFront.x,
+    VILLAGE_WAYPOINTS.officeFront.y,
+    VILLAGE_WAYPOINTS[key]
+  );
+  assert.ok(crossing.length > 0, `Must be able to walk from Office HQ to ${key}`);
+}
+
+// 12. Interactive Village Activities: benches/seats, boat dock, tram station, basketball court
+for (const seat of [...VILLAGE_BENCHES, ...VILLAGE_EXTRA_SEATS]) {
+  assert.equal(
+    isFootBlocked(seat.approachSpot.x, seat.approachSpot.y, VILLAGE_COLLIDERS),
+    false,
+    `Village seat ${seat.id} approachSpot blocked`
+  );
+}
+assert.equal(
+  isFootBlocked(VILLAGE_BOAT_CONFIG.dockPoint.x, VILLAGE_BOAT_CONFIG.dockPoint.y, VILLAGE_COLLIDERS),
+  false,
+  'Boat dockPoint must be clear'
+);
+// Pastikan posisi awal perahu berada DI DALAM area sailBounds dan di luar pierAvoidBox agar bisa digerakkan!
+{
+  const mp = VILLAGE_BOAT_CONFIG.mooredPos;
+  const sb = VILLAGE_BOAT_CONFIG.sailBounds;
+  const pa = VILLAGE_BOAT_CONFIG.pierAvoidBox;
+  assert.ok(
+    mp.x >= sb.minX && mp.x <= sb.maxX && mp.y >= sb.minY && mp.y <= sb.maxY,
+    `Boat mooredPos (${mp.x},${mp.y}) must be inside sailBounds`
+  );
+  const insidePierAvoid = mp.x > pa.x && mp.x < pa.x + pa.w && mp.y > pa.y && mp.y < pa.y + pa.h;
+  assert.equal(insidePierAvoid, false, 'Boat mooredPos must not overlap pierAvoidBox');
+}
+assert.equal(
+  isFootBlocked(VILLAGE_TRAM_CONFIG.stationDropSpot.x, VILLAGE_TRAM_CONFIG.stationDropSpot.y, VILLAGE_COLLIDERS),
+  false,
+  'Tram stationDropSpot must be clear'
+);
+{
+  const st = VILLAGE_TRAM_CONFIG.stationDropSpot;
+  const nb = VILLAGE_TRAM_CONFIG.stationNearBox;
+  assert.ok(
+    st.x >= nb.x && st.x <= nb.x + nb.w && st.y >= nb.y && st.y <= nb.y + nb.h,
+    'Tram stationNearBox must cover stationDropSpot'
+  );
+}
+assert.equal(
+  isFootBlocked(
+    VILLAGE_BASKETBALL_CONFIG.defaultShootSpot.x,
+    VILLAGE_BASKETBALL_CONFIG.defaultShootSpot.y,
+    VILLAGE_COLLIDERS
+  ),
+  false,
+  'Basketball defaultShootSpot must be clear'
 );
 
 globalThis.fetch = origFetch;

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Building2,
   Download,
   FileText,
   HelpCircle,
   LocateFixed,
+  Map,
   Maximize2,
   Music,
   PanelRightClose,
@@ -17,9 +19,13 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { OFFICE_ROOMS } from '../constants/officeConfig';
+import { VILLAGE_BUILDINGS } from '../constants/villageConfig';
 import { OFFICE_BGM_TRACKS } from '../utils/audio';
 
 export default function HeaderBar({
+  activeScene = 'village',
+  onEnterOffice = null,
+  onExitToVillage = null,
   agentCount,
   simSpeed,
   onChangeSimSpeed,
@@ -27,6 +33,11 @@ export default function HeaderBar({
   onToggleFx,
   bgmTrack,
   onChangeBgmTrack,
+  bgmVolume = 0.75,
+  onChangeBgmVolume,
+  sfxVolume = 0.8,
+  onChangeSfxVolume,
+  onPreviewSfx,
   showAmbientStaff,
   onToggleAmbientStaff,
   cameraZoom,
@@ -86,7 +97,9 @@ export default function HeaderBar({
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <h1 className="font-bold text-sm text-white truncate">Virtual Office AI</h1>
           <span className="hidden xl:inline text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-            {OFFICE_ROOMS.length} Rooms • {agentCount} Agen
+            {activeScene === 'village'
+              ? `Village • ${VILLAGE_BUILDINGS.length} Bangunan`
+              : `${OFFICE_ROOMS.length} Rooms • ${agentCount} Agen`}
           </span>
           <button
             type="button"
@@ -112,8 +125,38 @@ export default function HeaderBar({
         </div>
       </div>
 
-      {/* TENGAH: KONTROL KAMERA RINGKAS (ZOOM & FOLLOW) */}
-      <div className="hidden md:flex items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-0.5 shrink-0">
+      {/* TENGAH: SWITCH LOKASI (VILLAGE <-> OFFICE HQ) + KONTROL KAMERA */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-0.5 bg-slate-950/90 border border-slate-800 rounded-xl p-0.5">
+          <button
+            type="button"
+            onClick={onExitToVillage}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-colors ${
+              activeScene === 'village'
+                ? 'bg-emerald-600/25 text-emerald-300 border border-emerald-500/40'
+                : 'text-slate-300 hover:bg-slate-800 border border-transparent'
+            }`}
+            title="Peta Antigravity Village (Outdoor)"
+          >
+            <Map className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Village</span>
+          </button>
+          <button
+            type="button"
+            onClick={onEnterOffice}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-colors ${
+              activeScene === 'office'
+                ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-500/40'
+                : 'text-slate-300 hover:bg-slate-800 border border-transparent'
+            }`}
+            title="Masuk ke Interior Virtual Office HQ"
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Office HQ</span>
+          </button>
+        </div>
+
+        <div className="hidden md:flex items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-0.5 shrink-0">
         <button
           type="button"
           onClick={zoomOut}
@@ -158,6 +201,7 @@ export default function HeaderBar({
           <LocateFixed className="w-3.5 h-3.5" />
           <span>Follow</span>
         </button>
+        </div>
       </div>
 
       {/* KANAN: BANTUAN KONTROL (?) + PERINTAH DIRECTOR + PENGATURAN */}
@@ -186,6 +230,12 @@ export default function HeaderBar({
                   <span className="text-slate-400">Jalan keliling</span>
                   <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-200">
                     WASD / Arrow / Klik Lantai
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-400">Masuk / keluar gedung</span>
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-emerald-300">
+                    Jalan ke Pintu / Klik / E
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -329,7 +379,7 @@ export default function HeaderBar({
                 </div>
 
                 <div className="flex items-center justify-between gap-2 px-1">
-                  <span className="text-xs text-slate-200">Staf Ambient</span>
+                  <span className="text-xs text-slate-200">Staf &amp; Warga</span>
                   <button
                     type="button"
                     onClick={onToggleAmbientStaff}
@@ -347,13 +397,51 @@ export default function HeaderBar({
 
               <div className="border-t border-slate-800" />
 
-              {/* AUDIO KANTOR */}
-              <div className="space-y-2">
+              {/* AUDIO & MUSIK */}
+              <div className="space-y-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1">
-                  Audio Kantor
+                  Audio &amp; Musik
                 </p>
 
-                <div className="flex items-center justify-between gap-2 px-1">
+                <div className="px-1 space-y-1">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-200">
+                    <Music className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Musik Latar (BGM)</span>
+                  </label>
+                  <select
+                    aria-label="Pilih audio latar kantor"
+                    value={bgmTrack || 'off'}
+                    onChange={(e) => onChangeBgmTrack(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    {OFFICE_BGM_TRACKS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="px-1 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-300">Volume Musik</span>
+                    <span className="font-mono text-indigo-300 font-semibold">
+                      {Math.round((bgmVolume ?? 0.75) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    aria-label="Volume Musik Latar"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={Math.round((bgmVolume ?? 0.75) * 100)}
+                    onChange={(e) => onChangeBgmVolume?.(Number(e.target.value) / 100)}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2 px-1 pt-0.5">
                   <span className="text-xs text-slate-200">Efek Suara (SFX)</span>
                   <button
                     type="button"
@@ -374,22 +462,24 @@ export default function HeaderBar({
                 </div>
 
                 <div className="px-1 space-y-1">
-                  <label className="flex items-center gap-1.5 text-xs text-slate-200">
-                    <Music className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Musik Latar (BGM)</span>
-                  </label>
-                  <select
-                    aria-label="Pilih audio latar kantor"
-                    value={bgmTrack || 'off'}
-                    onChange={(e) => onChangeBgmTrack(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                  >
-                    {OFFICE_BGM_TRACKS.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-300">Volume Efek (SFX)</span>
+                    <span className="font-mono text-emerald-300 font-semibold">
+                      {Math.round((sfxVolume ?? 0.8) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    aria-label="Volume Efek Suara"
+                    min="0"
+                    max="100"
+                    step="5"
+                    disabled={!fxEnabled}
+                    value={Math.round((sfxVolume ?? 0.8) * 100)}
+                    onChange={(e) => onChangeSfxVolume?.(Number(e.target.value) / 100)}
+                    onPointerUp={() => onPreviewSfx?.()}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 disabled:opacity-40"
+                  />
                 </div>
               </div>
 

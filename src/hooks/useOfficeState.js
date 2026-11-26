@@ -5,6 +5,7 @@ import {
   EXTRA_AGENT_SLOTS,
   WAYPOINTS,
 } from '../constants/officeConfig';
+import { OFFICE_HQ_BUILDING } from '../constants/villageConfig';
 
 const STORAGE_KEY = 'virtual_office_ai_v2_1';
 const SESSION_KEYS_STORAGE = 'virtual_office_ai_keys_session';
@@ -74,7 +75,9 @@ export function useOfficeState() {
 
   const [workflowMode, setWorkflowMode] = useState('relay');
   const [grillingEnabled, setGrillingEnabled] = useState(true);
-  const [bgmTrack, setBgmTrack] = useState('lofi');
+  const [bgmTrack, setBgmTrack] = useState('village');
+  const [bgmVolume, setBgmVolume] = useState(0.75);
+  const [sfxVolume, setSfxVolume] = useState(0.8);
 
   const [agents, setAgents] = useState(DEFAULT_AGENTS);
   const [sessions, setSessions] = useState([initialSession]);
@@ -86,9 +89,9 @@ export function useOfficeState() {
     accentHex: '#ec4899',
     hairColor: '#f8fafc',
     skinColor: '#fde68a',
-    x: WAYPOINTS.directorStand.x,
-    y: WAYPOINTS.directorStand.y,
-    facing: 'up',
+    x: OFFICE_HQ_BUILDING.spawnOutside.x,
+    y: OFFICE_HQ_BUILDING.spawnOutside.y,
+    facing: 'down',
     isSitting: false,
     walkPhase: 0,
     isMoving: false,
@@ -145,6 +148,12 @@ export function useOfficeState() {
         }
         if (typeof saved.bgmTrack === 'string') {
           setBgmTrack(saved.bgmTrack);
+        }
+        if (typeof saved.bgmVolume === 'number') {
+          setBgmVolume(Math.max(0, Math.min(1, saved.bgmVolume)));
+        }
+        if (typeof saved.sfxVolume === 'number') {
+          setSfxVolume(Math.max(0, Math.min(1, saved.sfxVolume)));
         }
 
         const hasLegacyLocalKeys = Boolean(saved.geminiApiKey || saved.deepseekApiKey);
@@ -285,6 +294,8 @@ export function useOfficeState() {
           workflowMode,
           grillingEnabled,
           bgmTrack,
+          bgmVolume,
+          sfxVolume,
           agents,
           sessions,
           activeSessionId,
@@ -315,6 +326,8 @@ export function useOfficeState() {
     workflowMode,
     grillingEnabled,
     bgmTrack,
+    bgmVolume,
+    sfxVolume,
     agents,
     sessions,
     activeSessionId,
@@ -400,6 +413,10 @@ export function useOfficeState() {
     setGrillingEnabled,
     bgmTrack,
     setBgmTrack,
+    bgmVolume,
+    setBgmVolume,
+    sfxVolume,
+    setSfxVolume,
     agents,
     setAgents,
     sessions,

@@ -2,9 +2,15 @@ import React from 'react';
 import { X } from 'lucide-react';
 import OfficeCanvas2D from './OfficeCanvas2D';
 import { OFFICE_ROOMS } from '../constants/officeConfig';
+import { VILLAGE_BUILDINGS, VILLAGE_NAME } from '../constants/villageConfig';
 
 export default function OfficeViewport({
   isEmbed = false,
+  activeScene = 'village',
+  onEnterOffice = null,
+  onExitToVillage = null,
+  onVillageNotice = null,
+  onOpenVillageGuide = null,
   npcRef,
   directorRef,
   fxEventsRef,
@@ -31,6 +37,11 @@ export default function OfficeViewport({
     <section className="w-full flex-1 h-full bg-slate-950 relative flex flex-col shrink-0 min-h-0">
       <div className="flex-1 min-h-0 relative">
         <OfficeCanvas2D
+          activeScene={activeScene}
+          onEnterOffice={onEnterOffice}
+          onExitToVillage={onExitToVillage}
+          onVillageNotice={onVillageNotice}
+          onOpenVillageGuide={onOpenVillageGuide}
           npcRef={npcRef}
           directorRef={directorRef}
           fxEventsRef={fxEventsRef}
@@ -49,7 +60,7 @@ export default function OfficeViewport({
         />
       </div>
 
-      {inspectedAgent && (
+      {activeScene === 'office' && inspectedAgent && (
         <div className="absolute bottom-11 left-2 right-2 sm:left-3 sm:right-auto sm:w-80 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl p-3.5 shadow-2xl z-10">
           <div className="flex items-start justify-between">
             <div>
@@ -81,8 +92,13 @@ export default function OfficeViewport({
       {!isEmbed && (
         <div className="bg-slate-900/95 border-t border-slate-800 px-4 py-1.5 flex items-center justify-between gap-2 text-[11px] shrink-0">
           <span className="text-slate-400 shrink-0">
-            {OFFICE_ROOMS.length} Rooms •{' '}
-            {workflowMode === 'solo' ? 'Solo Full-Stack' : `Tim Relay • QA Loop (max ${maxRevisions}x)`}
+            {activeScene === 'village'
+              ? `${VILLAGE_NAME} • ${VILLAGE_BUILDINGS.length} Bangunan • Klik Virtual Office HQ untuk masuk`
+              : `${OFFICE_ROOMS.length} Rooms • ${
+                  workflowMode === 'solo'
+                    ? 'Solo Full-Stack'
+                    : `Tim Relay • QA Loop (max ${maxRevisions}x)`
+                }`}
           </span>
           <span className="font-mono text-indigo-400 truncate">{pipelineStatus}</span>
         </div>

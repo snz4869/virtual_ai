@@ -41,6 +41,7 @@ function buildFocusedRelayLogs(allSessionLogs, turnStartIdx, rakaId, nadiaId) {
 }
 
 export function useOfficeRelay({
+  activeSceneRef = null,
   directorRef,
   npcRef,
   fxEventsRef,
@@ -198,6 +199,9 @@ export function useOfficeRelay({
 
   const moveDirectorToMeetingSeat = (signal = null) => {
     return new Promise((resolve, reject) => {
+      if (activeSceneRef?.current && activeSceneRef.current !== 'office') {
+        return resolve();
+      }
       const dir = directorRef?.current;
       if (!dir) return resolve();
 

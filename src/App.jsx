@@ -6,10 +6,19 @@ import SettingsModal from './components/SettingsModal';
 import TeamSopModal from './components/TeamSopModal';
 import HtmlPreviewModal from './components/HtmlPreviewModal';
 import GrillingModal from './components/GrillingModal';
+import VillageGuideModal from './components/VillageGuideModal';
 import { MEETING_SEATS, PRESET_PROMPTS, WAYPOINTS } from './constants/officeConfig';
+import { OFFICE_HQ_BUILDING } from './constants/villageConfig';
 import { createSession, useOfficeState } from './hooks/useOfficeState';
 import { useOfficeRelay } from './hooks/useOfficeRelay';
-import { playRetroTone, setOfficeBgm, stopOfficeBgm, unlockAudio } from './utils/audio';
+import {
+  playRetroTone,
+  setBgmVolume,
+  setOfficeBgm,
+  setSfxVolume,
+  stopOfficeBgm,
+  unlockAudio,
+} from './utils/audio';
 import { ALLOWED_FILE_TYPES, prepareFilePayload } from './utils/fileParser';
 import { buildOfficePath } from './utils/pathfinding';
 
@@ -31,6 +40,8 @@ export default function App() {
   const [filePayload, setFilePayload] = useState(null);
   const [isReadingFile, setIsReadingFile] = useState(false);
 
+  const [activeScene, setActiveScene] = useState('village');
+  const activeSceneRef = useRef('village');
   const [simSpeed, setSimSpeed] = useState(1);
   const [fxEnabled, setFxEnabled] = useState(true);
   const [logFilter, setLogFilter] = useState('all');
@@ -97,6 +108,7 @@ export default function App() {
   };
 
   const relay = useOfficeRelay({
+    activeSceneRef,
     directorRef: office.directorRef,
     npcRef: office.npcRef,
     fxEventsRef,
@@ -144,8 +156,58 @@ export default function App() {
     }
   }, [relay.pendingGrilling]);
 
+  const enterOffice = ({ goToSeat = false } = {}) => {
+    unlockAudio();
+    const dir = office.directorRef.current;
+    activeSceneRef.current = 'office';
+    setActiveScene('office');
+    if (dir) {
+      const spawn = goToSeat ? WAYPOINTS.directorStand : WAYPOINTS.officeEntrance;
+      dir.x = spawn.x;
+      dir.y = spawn.y;
+      dir.facing = 'up';
+      dir.activity = null;
+      dir.boatTarget = null;
+      dir.statusBubble = '';
+      dir.isSitting = false;
+      dir.isMoving = false;
+      dir.pathQueue = [];
+      dir.onArriveCallback = null;
+      dir.targetMarker = null;
+    }
+    playRetroTone('approve', fxEnabled);
+  };
+
+  const exitToVillage = () => {
+    unlockAudio();
+    activeSceneRef.current = 'village';
+    setActiveScene('village');
+    setSelectedNpcId(null);
+    if (!relay.isRelayRunning && !relay.pendingGrilling) {
+      setIsWorkPanelOpen(false);
+    }
+    const dir = office.directorRef.current;
+    if (dir) {
+      dir.x = OFFICE_HQ_BUILDING.spawnOutside.x;
+      dir.y = OFFICE_HQ_BUILDING.spawnOutside.y;
+      dir.facing = 'down';
+      dir.activity = null;
+      dir.boatTarget = null;
+      dir.statusBubble = '';
+      dir.isSitting = false;
+      dir.isMoving = false;
+      dir.pathQueue = [];
+      dir.onArriveCallback = null;
+      dir.targetMarker = null;
+    }
+    playRetroTone('click', fxEnabled);
+  };
+
   const sitDirectorAndOpenPanel = () => {
     unlockAudio();
+    if (activeSceneRef.current !== 'office') {
+      enterOffice({ goToSeat: true });
+    }
     setIsWorkPanelOpen(true);
     const dir = office.directorRef.current;
     const seat = MEETING_SEATS.director;
@@ -191,10 +253,18 @@ export default function App() {
     }
   };
 
-  // Sinkronkan Office Lobby BGM & buka kunci Web Audio saat interaksi pertama pengguna
+  // Sinkronkan Office & Village BGM + volume secara real-time
   useEffect(() => {
-    setOfficeBgm(office.bgmTrack);
-  }, [office.bgmTrack]);
+    setOfficeBgm(office.bgmTrack, { volume: office.bgmVolume });
+  }, [office.bgmTrack, office.bgmVolume]);
+
+  useEffect(() => {
+    setBgmVolume(office.bgmVolume);
+  }, [office.bgmVolume]);
+
+  useEffect(() => {
+    setSfxVolume(office.sfxVolume);
+  }, [office.sfxVolume]);
 
   useEffect(() => {
     const onFirstGesture = () => unlockAudio();
@@ -246,9 +316,14 @@ export default function App() {
     setSelectedNpcId(null);
     clearFile();
 
-    office.directorRef.current.x = WAYPOINTS.directorStand.x;
-    office.directorRef.current.y = WAYPOINTS.directorStand.y;
-    office.directorRef.current.facing = 'up';
+    activeSceneRef.current = 'village';
+    setActiveScene('village');
+    office.directorRef.current.x = OFFICE_HQ_BUILDING.spawnOutside.x;
+    office.directorRef.current.y = OFFICE_HQ_BUILDING.spawnOutside.y;
+    office.directorRef.current.facing = 'down';
+    office.directorRef.current.activity = null;
+    office.directorRef.current.boatTarget = null;
+    office.directorRef.current.statusBubble = '';
     office.directorRef.current.isSitting = false;
     office.directorRef.current.pathQueue = [];
     office.directorRef.current.onArriveCallback = null;
@@ -330,6 +405,9 @@ export default function App() {
 
       {!isEmbed && (
         <HeaderBar
+          activeScene={activeScene}
+          onEnterOffice={() => enterOffice()}
+          onExitToVillage={exitToVillage}
           agentCount={office.agents.length}
           simSpeed={simSpeed}
           onChangeSimSpeed={setSimSpeed}
@@ -345,6 +423,19 @@ export default function App() {
             office.setBgmTrack(trackId);
             playRetroTone('click', fxEnabled);
           }}
+          bgmVolume={office.bgmVolume}
+          onChangeBgmVolume={(vol) => {
+            unlockAudio();
+            office.setBgmVolume(vol);
+            setBgmVolume(vol);
+          }}
+          sfxVolume={office.sfxVolume}
+          onChangeSfxVolume={(vol) => {
+            unlockAudio();
+            office.setSfxVolume(vol);
+            setSfxVolume(vol);
+          }}
+          onPreviewSfx={() => playRetroTone('greet', fxEnabled)}
           showAmbientStaff={showAmbientStaff}
           onToggleAmbientStaff={() => {
             setShowAmbientStaff((v) => !v);
@@ -374,6 +465,11 @@ export default function App() {
       <div className="flex-1 relative flex overflow-x-clip overflow-y-hidden min-h-0">
         <OfficeViewport
           isEmbed={isEmbed}
+          activeScene={activeScene}
+          onEnterOffice={() => enterOffice()}
+          onExitToVillage={exitToVillage}
+          onVillageNotice={(msg) => showToast(msg, 'info')}
+          onOpenVillageGuide={() => setActiveModal('village_guide')}
           npcRef={office.npcRef}
           directorRef={office.directorRef}
           fxEventsRef={fxEventsRef}
@@ -459,6 +555,13 @@ export default function App() {
           onSkip={relay.skipGrilling}
           onMinimize={() => setGrillingMinimized(true)}
           onStopRun={relay.stopActiveRun}
+        />
+      )}
+
+      {activeModal === 'village_guide' && (
+        <VillageGuideModal
+          onClose={() => setActiveModal(null)}
+          onEnterOffice={() => enterOffice()}
         />
       )}
 

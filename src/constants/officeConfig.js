@@ -147,12 +147,22 @@ export const DIRECTOR_SEAT_ZONE = {
   h: 54,
 };
 
+// Pintu utama di koridor bawah untuk keluar kembali ke peta Village
+export const OFFICE_EXIT_ZONE = {
+  x: 254,
+  y: 1146,
+  w: 88,
+  h: 58,
+};
+
 export const WAYPOINTS = {
   directorDesk: { x: 92, y: 178 },
   director_home: { x: 92, y: 178 },
   directorStand: { x: 170, y: 300 },
   directorDoor: { x: 274, y: 375 },
   director_report: { x: 248, y: 223 },
+  officeEntrance: { x: 298, y: 1124 },
+  officeExitDoor: { x: 298, y: 1178 },
 
   hallwayNorth: { x: 285, y: 420 },
   hallwayCenter: { x: 285, y: 690 },
