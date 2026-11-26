@@ -21,6 +21,7 @@ import {
   VILLAGE_TREES,
   VILLAGE_W,
 } from '../constants/villageConfig';
+import { getVillageSprite } from './villageAssets';
 
 export const VILLAGE_MINIMAP_RECT = {
   x: WORLD_W - 256,
@@ -44,33 +45,93 @@ function drawBox(ctx, x, y, w, h, fill, stroke = '#2c221e', lineWidth = 2) {
   }
 }
 
-function drawOrganicRoad(ctx, x, y, w, h, radius = 22) {
-  ctx.fillStyle = '#b9a37d';
-  ctx.beginPath();
-  ctx.roundRect(x - 5, y - 5, w + 10, h + 10, radius + 4);
-  ctx.fill();
+// Jaringan jalan terpadu (semua segmen dirender dalam 3 pass agar menyatu mulus tanpa garis tumpang tindih)
+const VILLAGE_ROAD_SEGMENTS = [
+  // 3 Jalan Utama Horizontal (Barat -> Timur)
+  { x: 220, y: 540, w: 2450, h: 106, r: 28 }, // Jalan Raya Utama Utara
+  { x: 220, y: 1018, w: 2480, h: 78, r: 24 }, // Jalan Lintas Tengah
+  { x: 248, y: 1558, w: 2440, h: 82, r: 26 }, // Jalan Lintas Selatan
 
-  ctx.fillStyle = '#e5d8bc';
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, radius);
-  ctx.fill();
+  // Jalan Vertikal Penghubung Distrik (dimulai rapi dari Jalan Utama y=560 ke selatan, tidak menumpuk teras gedung utara!)
+  { x: 752, y: 560, w: 80, h: 1060, r: 20 }, // Koridor Barat + Jembatan Barat (center x=792)
+  { x: 1712, y: 560, w: 80, h: 1060, r: 20 }, // Koridor Tengah-Timur + Jembatan Timur (center x=1752)
+  { x: 2324, y: 560, w: 72, h: 520, r: 18 }, // Penghubung Timur Atas (Utama -> Tengah)
+  { x: 2236, y: 1036, w: 78, h: 586, r: 18 }, // Penghubung Timur Bawah (Tengah -> Selatan)
 
+  // Alun-Alun Tengah simetris tepat di depan Virtual Office HQ (center x=1490)
+  { x: 1260, y: 396, w: 460, h: 350, r: 30 },
+
+  // Halaman Depan Kopi Senja simetris (persis gaya Stasiun Trem) + Patio Outdoor terhubung rapi
+  { x: 760, y: 382, w: 160, h: 176, r: 20 },
+  { x: 982, y: 214, w: 148, h: 216, r: 18 },
+  { x: 900, y: 382, w: 220, h: 54, r: 16 },
+
+  // Akses / Halaman Depan Bangunan & Landmark Lainnya (simetris ke pintu masing-masing)
+  { x: 230, y: 368, w: 160, h: 196, r: 20 }, // Stasiun Trem -> Jalan Utama
+  { x: 2020, y: 396, w: 120, h: 168, r: 20 }, // Maker Hub -> Jalan Utama
+  { x: 2550, y: 396, w: 120, h: 168, r: 20 }, // Kincir Angin -> Jalan Utama
+  { x: 232, y: 972, w: 96, h: 72, r: 16 }, // Galeri Seni -> Jalan Tengah
+  { x: 596, y: 980, w: 88, h: 56, r: 14 }, // Lapangan Basket -> Jalan Tengah
+  { x: 2124, y: 944, w: 102, h: 98, r: 16 }, // Villa Melati -> Jalan Tengah
+  { x: 2584, y: 936, w: 112, h: 104, r: 16 }, // Rumah Kaca -> Jalan Tengah
+  { x: 1228, y: 1076, w: 84, h: 74, r: 14 }, // Jalan Tengah -> Dermaga Danau
+  { x: 250, y: 1446, w: 322, h: 134, r: 20 }, // Toko Buku & Kios Pasar -> Jalan Selatan
+  { x: 2576, y: 1456, w: 112, h: 126, r: 16 }, // Rumah Pak RT -> Jalan Selatan
+  { x: 924, y: 1620, w: 156, h: 216, r: 20 }, // Jalan Selatan -> Food Truck Danau
+  { x: 1612, y: 1620, w: 82, h: 74, r: 16 }, // Jalan Selatan -> Taman Api Unggun
+];
+
+function drawUnifiedRoadNetwork(ctx) {
+  // Pass 1: Tepian kerikil / curb luar menyatu tanpa memotong persimpangan
+  ctx.fillStyle = '#ad9670';
+  VILLAGE_ROAD_SEGMENTS.forEach((s) => {
+    ctx.beginPath();
+    ctx.roundRect(s.x - 6, s.y - 6, s.w + 12, s.h + 12, s.r + 5);
+    ctx.fill();
+  });
+
+  // Pass 2: Permukaan dasar jalan sandstone seragam di atas seluruh curb
+  ctx.fillStyle = '#e6d9be';
+  VILLAGE_ROAD_SEGMENTS.forEach((s) => {
+    ctx.beginPath();
+    ctx.roundRect(s.x, s.y, s.w, s.h, s.r);
+    ctx.fill();
+  });
+
+  // Pass 3: Pola batu paving global (koordinat dunia yang sama, nol sambungan patah!)
   ctx.save();
   ctx.beginPath();
-  ctx.roundRect(x + 2, y + 2, w - 4, h - 4, Math.max(4, radius - 2));
+  VILLAGE_ROAD_SEGMENTS.forEach((s) => {
+    ctx.roundRect(s.x + 2, s.y + 2, s.w - 4, s.h - 4, Math.max(4, s.r - 2));
+  });
   ctx.clip();
-  const stepX = 32;
-  const stepY = 24;
-  for (let row = 0, py = y; py < y + h; row++, py += stepY) {
-    const offset = (row % 2) * 16;
-    for (let px = x - offset; px < x + w; px += stepX) {
-      const hash = ((px * 13 + py * 7) & 31) % 3;
-      ctx.fillStyle = hash === 0 ? '#ede2ca' : hash === 1 ? '#dfd0b0' : '#e6d8bc';
-      ctx.fillRect(px + 2, py + 2, stepX - 4, stepY - 4);
-      ctx.strokeStyle = 'rgba(139, 115, 85, 0.14)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px + 2.5, py + 2.5, stepX - 5, stepY - 5);
-    }
+
+  const tileCanvas = document.createElement('canvas');
+  tileCanvas.width = 64;
+  tileCanvas.height = 48;
+  const tctx = tileCanvas.getContext('2d');
+  tctx.fillStyle = '#e5d8bc';
+  tctx.fillRect(0, 0, 64, 48);
+  const stones = [
+    [2, 2, 28, 20, '#ede2ca'],
+    [34, 2, 28, 20, '#dfd0b0'],
+    [18, 26, 28, 20, '#e8dcc2'],
+    [-14, 26, 28, 20, '#dfd0b0'],
+    [50, 26, 28, 20, '#ede2ca'],
+  ];
+  stones.forEach(([sx, sy, sw, sh, col]) => {
+    tctx.fillStyle = col;
+    tctx.beginPath();
+    tctx.roundRect(sx, sy, sw, sh, 4);
+    tctx.fill();
+    tctx.strokeStyle = 'rgba(139, 115, 85, 0.16)';
+    tctx.lineWidth = 1;
+    tctx.stroke();
+  });
+  const pattern = ctx.createPattern(tileCanvas, 'repeat');
+  if (pattern) {
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
   }
   ctx.restore();
 }
@@ -239,7 +300,70 @@ function drawNoticeBoard(ctx) {
   drawBox(ctx, nb.x - 4, nb.y - 4, nb.w + 8, 9, '#78350f', '#2c221e', 1.6);
 }
 
+function drawSpriteBuilding(ctx, sprite, b, { padX = 16, overhangTop = 36, badgeText = null, badgeBorder = '#facc15' } = {}) {
+  const targetW = b.w + padX * 2;
+  const aspect = sprite.naturalHeight / sprite.naturalWidth;
+  const maxH = b.h + overhangTop;
+  let drawW = targetW;
+  let drawH = drawW * aspect;
+  if (drawH > maxH) {
+    drawH = maxH;
+    drawW = drawH / aspect;
+  }
+  const drawX = Math.round(b.x + (b.w - drawW) / 2);
+  const drawY = Math.round(b.y + b.h - drawH + 4);
+
+  // Bayangan lembut di dasar bangunan
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.24)';
+  ctx.beginPath();
+  ctx.roundRect(drawX + 12, b.y + b.h - 14, drawW - 14, 24, 10);
+  ctx.fill();
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(sprite, drawX, drawY, Math.round(drawW), Math.round(drawH));
+  ctx.restore();
+
+  if (badgeText) {
+    ctx.font = 'bold 12px "Inter", system-ui, sans-serif';
+    const bw = Math.max(126, ctx.measureText(badgeText).width + 24);
+    const bx = Math.round(b.x + (b.w - bw) / 2);
+    const by = Math.max(24, drawY - 10);
+    drawBox(ctx, bx, by, bw, 24, 'rgba(15, 23, 42, 0.92)', badgeBorder, 1.8);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, b.x + b.w / 2, by + 16);
+  }
+}
+
 function drawOfficeHq(ctx, b) {
+  const sprite = getVillageSprite('office_hq');
+  if (sprite) {
+    // Pot tanaman & tangga sambut + rak sepeda tetap digambar rapi
+    const d = b.door;
+    drawBox(ctx, d.x - 10, b.y + b.h, d.w + 20, 14, '#cbd5e1', '#475569', 1.5);
+    drawBox(ctx, d.x + 8, b.y + b.h + 12, d.w - 16, 12, '#4f46e5', '#1e1b4b', 1.5);
+
+    drawSpriteBuilding(ctx, sprite, b, {
+      padX: 14,
+      overhangTop: 58,
+      badgeText: '🏢 VIRTUAL OFFICE HQ',
+      badgeBorder: '#10b981',
+    });
+
+    // Rak sepeda di sisi kiri gedung
+    const br = VILLAGE_PROPS.officeBikeRack;
+    drawBox(ctx, br.x, br.y, br.w, br.h, '#cbd5e1', '#475569', 1.5);
+    [br.y + 10, br.y + 26].forEach((by, i) => {
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(br.x + 6, by, 8, 5);
+      ctx.fillRect(br.x + 32, by, 8, 5);
+      ctx.fillStyle = i === 0 ? '#ec4899' : '#0ea5e9';
+      ctx.fillRect(br.x + 12, by + 1, 22, 3);
+    });
+    return;
+  }
+
   const roofH = 98;
   const wallY = b.y + roofH;
   const wallH = b.h - roofH;
@@ -334,7 +458,43 @@ function drawOfficeHq(ctx, b) {
 }
 
 function drawCafeAndPatio(ctx, b) {
-  drawOrganicRoad(ctx, 982, 214, 150, 178, 16);
+  const sprite = getVillageSprite('cafe');
+  if (sprite) {
+    drawSpriteBuilding(ctx, sprite, b, {
+      padX: 12,
+      overhangTop: 36,
+      badgeText: '☕ KOPI SENJA',
+      badgeBorder: '#fb923c',
+    });
+    VILLAGE_CAFE_TABLES.forEach((t) => {
+      const cx = t.x + t.w / 2;
+      const cy = t.y + t.h / 2;
+      drawBox(ctx, t.x - 9, cy - 7, 9, 14, '#9a5b32', '#2c221e', 1.2);
+      drawBox(ctx, t.x + t.w, cy - 7, 9, 14, '#9a5b32', '#2c221e', 1.2);
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.arc(cx + 4, cy + 5, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = t.umbrella;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 21, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fffbeb';
+      for (let s = 0; s < 4; s++) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, 20, (s * Math.PI) / 2, (s * Math.PI) / 2 + Math.PI / 4);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#2c221e';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 21, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    return;
+  }
 
   const roofH = 76;
   const wallY = b.y + roofH;
@@ -408,6 +568,20 @@ function drawCafeAndPatio(ctx, b) {
 }
 
 function drawMakerHub(ctx, b) {
+  const sprite = getVillageSprite('cowork');
+  if (sprite) {
+    drawSpriteBuilding(ctx, sprite, b, {
+      padX: 12,
+      overhangTop: 40,
+      badgeText: '🛠️ MAKER HUB',
+      badgeBorder: '#2dd4bf',
+    });
+    const my = VILLAGE_PROPS.makerYard;
+    drawBox(ctx, my.x + 6, my.y + 6, 36, 30, '#b47643', '#5c3a21', 2);
+    drawBox(ctx, my.x + 8, my.y + 46, 34, 18, '#2dd4bf', '#134e4a', 1.8);
+    return;
+  }
+
   const roofH = 82;
   const wallY = b.y + roofH;
   const wallH = b.h - roofH;
@@ -446,14 +620,25 @@ function drawMakerHub(ctx, b) {
 }
 
 function drawStation(ctx, b) {
-  const roofH = 74;
-  const wallY = b.y + roofH;
-  const wallH = b.h - roofH;
-
   // Peron kayu utara stasiun
   drawBox(ctx, b.x - 16, b.y - 24, b.w + 32, 24, '#cbd5e1', '#475569', 1.8);
   ctx.fillStyle = '#facc15';
   ctx.fillRect(b.x - 12, b.y - 21, b.w + 24, 4);
+
+  const sprite = getVillageSprite('station');
+  if (sprite) {
+    drawSpriteBuilding(ctx, sprite, b, {
+      padX: 10,
+      overhangTop: 28,
+      badgeText: '🚋 STASIUN TREM DESA',
+      badgeBorder: '#4ade80',
+    });
+    return;
+  }
+
+  const roofH = 74;
+  const wallY = b.y + roofH;
+  const wallH = b.h - roofH;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.22)';
   ctx.fillRect(b.x + 8, b.y + 10, b.w, b.h);
@@ -562,36 +747,46 @@ function drawGalleryAndCourt(ctx, b) {
 }
 
 function drawBookshopAndStall(ctx, b) {
-  const roofH = 78;
-  const wallY = b.y + roofH;
-  const wallH = b.h - roofH;
+  const sprite = getVillageSprite('bookshop');
+  if (sprite) {
+    drawSpriteBuilding(ctx, sprite, b, {
+      padX: 12,
+      overhangTop: 36,
+      badgeText: '📚 TOKO BUKU & KIOS',
+      badgeBorder: '#60a5fa',
+    });
+  } else {
+    const roofH = 78;
+    const wallY = b.y + roofH;
+    const wallH = b.h - roofH;
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.22)';
-  ctx.fillRect(b.x + 8, b.y + 10, b.w, b.h);
-  drawBox(ctx, b.x, wallY, b.w, wallH, '#eff6ff', '#1e3a8a', 2.5);
-  drawBox(ctx, b.x - 8, b.y, b.w + 16, roofH + 4, '#1d4ed8', '#1e3a8a', 2.5);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.22)';
+    ctx.fillRect(b.x + 8, b.y + 10, b.w, b.h);
+    drawBox(ctx, b.x, wallY, b.w, wallH, '#eff6ff', '#1e3a8a', 2.5);
+    drawBox(ctx, b.x - 8, b.y, b.w + 16, roofH + 4, '#1d4ed8', '#1e3a8a', 2.5);
 
-  [b.x + 22, b.x + b.w - 86].forEach((wx) => {
-    drawBox(ctx, wx, wallY + 26, 64, 52, '#fef9c3', '#1e3a8a', 2);
-    const colors = ['#ef4444', '#f59e0b', '#10b981', '#6366f1', '#ec4899'];
-    for (let i = 0; i < 6; i++) {
-      ctx.fillStyle = colors[i % colors.length];
-      ctx.fillRect(wx + 6 + i * 9, wallY + 42, 7, 16);
-      ctx.fillStyle = colors[(i + 2) % colors.length];
-      ctx.fillRect(wx + 6 + i * 9, wallY + 60, 7, 14);
-    }
-  });
+    [b.x + 22, b.x + b.w - 86].forEach((wx) => {
+      drawBox(ctx, wx, wallY + 26, 64, 52, '#fef9c3', '#1e3a8a', 2);
+      const colors = ['#ef4444', '#f59e0b', '#10b981', '#6366f1', '#ec4899'];
+      for (let i = 0; i < 6; i++) {
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fillRect(wx + 6 + i * 9, wallY + 42, 7, 16);
+        ctx.fillStyle = colors[(i + 2) % colors.length];
+        ctx.fillRect(wx + 6 + i * 9, wallY + 60, 7, 14);
+      }
+    });
 
-  const d = b.door;
-  drawBox(ctx, d.x, d.y, d.w, d.h, '#78350f', '#2c221e', 2);
-  ctx.fillStyle = '#93c5fd';
-  ctx.fillRect(d.x + 8, d.y + 8, d.w - 16, 18);
+    const d = b.door;
+    drawBox(ctx, d.x, d.y, d.w, d.h, '#78350f', '#2c221e', 2);
+    ctx.fillStyle = '#93c5fd';
+    ctx.fillRect(d.x + 8, d.y + 8, d.w - 16, 18);
 
-  drawBox(ctx, b.x + 50, b.y + 20, 190, 30, '#0f172a', '#60a5fa', 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 13px "Inter", system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('📚 TOKO BUKU & KIOS', b.x + b.w / 2, b.y + 40);
+    drawBox(ctx, b.x + 50, b.y + 20, 190, 30, '#0f172a', '#60a5fa', 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px "Inter", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('📚 TOKO BUKU & KIOS', b.x + b.w / 2, b.y + 40);
+  }
 
   const ms = VILLAGE_PROPS.marketStall;
   ctx.fillStyle = 'rgba(0,0,0,0.18)';
@@ -633,6 +828,17 @@ function drawWindmillAndWheat(ctx, b) {
       }
     }
   });
+
+  const sprite = getVillageSprite('windmill');
+  if (sprite) {
+    drawSpriteBuilding(ctx, sprite, b, {
+      padX: 4,
+      overhangTop: 48,
+      badgeText: '🌾 KINCIR ANGIN',
+      badgeBorder: '#fbbf24',
+    });
+    return;
+  }
 
   // Menara Kincir Angin
   ctx.fillStyle = 'rgba(15, 23, 42, 0.24)';
@@ -965,31 +1171,42 @@ export function createVillageBackgroundBuffer() {
   off.height = VILLAGE_H;
   const ctx = off.getContext('2d');
 
-  // 1. Padang rumput organik luas (3000 x 2000)
-  ctx.fillStyle = '#84bd6b';
-  ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
+  // 1. Padang rumput pixel-art asli (seamless tile) atau fallback organik
+  const grassTile = getVillageSprite('grass_tile');
+  if (grassTile) {
+    const pattern = ctx.createPattern(grassTile, 'repeat');
+    if (pattern) {
+      ctx.fillStyle = pattern;
+      ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
+    } else {
+      ctx.fillStyle = '#84bd6b';
+      ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
+    }
+  } else {
+    ctx.fillStyle = '#84bd6b';
+    ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
 
-  [
-    [420, 620, 340, 180, '#7bb463'],
-    [1480, 940, 480, 220, '#7ab462'],
-    [2520, 620, 360, 210, '#7eb766'],
-    [2480, 1580, 420, 220, '#8dc674'],
-    [520, 1620, 380, 200, '#79b260'],
-    [1380, 1780, 520, 170, '#8ac371'],
-  ].forEach(([mx, my, rx, ry, col]) => {
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.ellipse(mx, my, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-  });
+    [
+      [420, 620, 340, 180, '#7bb463'],
+      [1480, 940, 480, 220, '#7ab462'],
+      [2520, 620, 360, 210, '#7eb766'],
+      [2480, 1580, 420, 220, '#8dc674'],
+      [520, 1620, 380, 200, '#79b260'],
+      [1380, 1780, 520, 170, '#8ac371'],
+    ].forEach(([mx, my, rx, ry, col]) => {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.ellipse(mx, my, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
 
-  // Helai rumput halus alami
-  ctx.fillStyle = '#6ba354';
-  for (let i = 0; i < 420; i++) {
-    const gx = ((i * 251 + 43) % (VILLAGE_W - 80)) + 40;
-    const gy = ((i * 173 + 150) % (VILLAGE_H - 190)) + 130;
-    ctx.fillRect(gx, gy, 3, 6);
-    ctx.fillRect(gx + 4, gy + 2, 3, 4);
+    ctx.fillStyle = '#6ba354';
+    for (let i = 0; i < 420; i++) {
+      const gx = ((i * 251 + 43) % (VILLAGE_W - 80)) + 40;
+      const gy = ((i * 173 + 150) % (VILLAGE_H - 190)) + 130;
+      ctx.fillRect(gx, gy, 3, 6);
+      ctx.fillRect(gx + 4, gy + 2, 3, 4);
+    }
   }
 
   // 2. Rel Trem Wisata di sisi paling utara (y: 44..98)
@@ -1003,27 +1220,14 @@ export function createVillageBackgroundBuffer() {
   ctx.fillRect(24, 60, VILLAGE_W - 48, 4);
   ctx.fillRect(24, 84, VILLAGE_W - 48, 4);
 
-  // 3. Jaringan Jalan Paving 4 Distrik
-  drawOrganicRoad(ctx, 110, 540, VILLAGE_W - 220, 112, 30); // Jalan Raya Utama Barat-Timur
-  drawOrganicRoad(ctx, 220, 1020, 2560, 78, 24); // Jalan Lintas Tengah
-  drawOrganicRoad(ctx, 260, 1560, 2460, 82, 26); // Jalan Lintas Selatan (Danau & Kuliner)
-  drawOrganicRoad(ctx, 750, 410, 86, 1220, 24); // Jalan Vertikal Barat (lewat Jembatan Barat)
-  drawOrganicRoad(ctx, 1710, 410, 86, 1220, 24); // Jalan Vertikal Timur Tengah (lewat Jembatan Timur)
-  drawOrganicRoad(ctx, 2320, 440, 84, 1200, 24); // Jalan Distrik Timur (Kincir -> Rumah Kaca -> Pak RT)
-  drawOrganicRoad(ctx, 1220, 396, 540, 360, 36); // Alun-Alun Tengah depan Virtual Office HQ
-  drawOrganicRoad(ctx, 240, 365, 140, 195, 22); // Depan Stasiun Trem
-  drawOrganicRoad(ctx, 770, 380, 140, 175, 22); // Depan Kopi Senja
-  drawOrganicRoad(ctx, 2010, 395, 140, 165, 22); // Depan Maker Hub
-  drawOrganicRoad(ctx, 2540, 395, 140, 165, 22); // Depan Kincir Angin
-  drawOrganicRoad(ctx, 1225, 1060, 90, 96, 16); // Akses ke Dermaga Danau
+  // 3. Jaringan Jalan Paving Terpadu 4 Distrik (menyatu mulus tanpa tumpang tindih)
+  drawUnifiedRoadNetwork(ctx);
 
   drawSteppingStones(ctx, [
     [1962, 956],
-    [1962, 988],
-    [1460, 1748],
-    [1510, 1748],
-    [1000, 1800],
-    [1000, 1640],
+    [1962, 992],
+    [1470, 1748],
+    [1515, 1748],
   ]);
 
   // 4. Air Mancur Tengah, Papan Desa, Danau, Dermaga, Jembatan & Api Unggun
@@ -1752,14 +1956,11 @@ export function drawVillageMinimap(ctx, { dir, villagers, pets, cam, timeSec }) 
   ctx.fillStyle = '#6da859';
   ctx.fillRect(m.x, m.y, m.w, m.h);
 
-  // Jalan utama minimap
+  // Jalan utama minimap (mengikuti VILLAGE_ROAD_SEGMENTS secara persis)
   ctx.fillStyle = '#dfd1b3';
-  ctx.fillRect(m.x + 110 * sx, m.y + 540 * sy, (VILLAGE_W - 220) * sx, 112 * sy);
-  ctx.fillRect(m.x + 220 * sx, m.y + 1020 * sy, 2560 * sx, 78 * sy);
-  ctx.fillRect(m.x + 260 * sx, m.y + 1560 * sy, 2460 * sx, 82 * sy);
-  ctx.fillRect(m.x + 750 * sx, m.y + 410 * sy, 86 * sx, 1220 * sy);
-  ctx.fillRect(m.x + 1710 * sx, m.y + 410 * sy, 86 * sx, 1220 * sy);
-  ctx.fillRect(m.x + 2320 * sx, m.y + 440 * sy, 84 * sx, 1200 * sy);
+  VILLAGE_ROAD_SEGMENTS.forEach((s) => {
+    ctx.fillRect(m.x + s.x * sx, m.y + s.y * sy, Math.max(2, s.w * sx), Math.max(2, s.h * sy));
+  });
 
   // Danau & Sungai di minimap
   ctx.fillStyle = '#0ea5e9';
@@ -1807,6 +2008,68 @@ export function drawVillageMinimap(ctx, { dir, villagers, pets, cam, timeSec }) 
     ctx.lineWidth = 1.2;
     ctx.stroke();
   }
+
+  ctx.restore();
+}
+
+export function drawVillageAtmosphereLighting(ctx, timeMode, timeSec, tramX) {
+  if (!timeMode || timeMode === 'day') return;
+
+  ctx.save();
+  if (timeMode === 'sunset') {
+    // Cahaya keemasan senja hangat menyelimuti desa
+    const grad = ctx.createLinearGradient(0, 0, VILLAGE_W, VILLAGE_H);
+    grad.addColorStop(0, 'rgba(249, 115, 22, 0.22)');
+    grad.addColorStop(0.55, 'rgba(234, 88, 12, 0.14)');
+    grad.addColorStop(1, 'rgba(88, 28, 135, 0.24)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
+  } else if (timeMode === 'night') {
+    // Langit malam indigo yang hangat & nyaman
+    ctx.fillStyle = 'rgba(15, 23, 56, 0.48)';
+    ctx.fillRect(0, 0, VILLAGE_W, VILLAGE_H);
+  }
+
+  // Pendar cahaya lampu jalan, tali lampu, api unggun, gedung & lampu depan trem
+  const intensity = timeMode === 'night' ? 1 : 0.55;
+  ctx.globalCompositeOperation = 'lighter';
+
+  const glowPoints = [
+    // Lampu jalan
+    [1246, 486, 95, '254, 240, 138'],
+    [1734, 486, 95, '254, 240, 138'],
+    [1246, 700, 95, '254, 240, 138'],
+    [1734, 700, 95, '254, 240, 138'],
+    [736, 506, 90, '254, 240, 138'],
+    [2298, 506, 90, '254, 240, 138'],
+    [734, 1258, 90, '254, 240, 138'],
+    [1818, 1258, 90, '254, 240, 138'],
+    [1214, 1108, 86, '254, 240, 138'],
+    [1326, 1108, 86, '254, 240, 138'],
+    [864, 1620, 90, '254, 240, 138'],
+    [1490, 1638, 90, '254, 240, 138'],
+    // Api unggun & pintu gedung utama
+    [1653, 1749, 145 + Math.sin(timeSec * 8) * 10, '251, 146, 60'],
+    [1490, 352, 135, '125, 211, 252'], // Office HQ
+    [840, 336, 110, '253, 224, 71'], // Kopi Senja
+    [2080, 350, 105, '94, 234, 212'], // Maker Hub
+    [310, 318, 110, '253, 224, 71'], // Stasiun Trem
+    [305, 1404, 105, '253, 224, 71'], // Toko Buku
+    [1000, 1720, 115, '253, 224, 71'], // Food Truck
+    // Lampu sorot depan Trem Wisata
+    [(tramX ?? 200) + 178, VILLAGE_TRAM_CONFIG.trackY + 26, 115, '254, 240, 138'],
+  ];
+
+  glowPoints.forEach(([gx, gy, r, rgb]) => {
+    const g = ctx.createRadialGradient(gx, gy, 4, gx, gy, r);
+    g.addColorStop(0, `rgba(${rgb}, ${0.42 * intensity})`);
+    g.addColorStop(0.5, `rgba(${rgb}, ${0.16 * intensity})`);
+    g.addColorStop(1, `rgba(${rgb}, 0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(gx, gy, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
 
   ctx.restore();
 }

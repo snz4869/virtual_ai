@@ -42,6 +42,7 @@ export default function App() {
 
   const [activeScene, setActiveScene] = useState('village');
   const activeSceneRef = useRef('village');
+  const [villageTime, setVillageTime] = useState('day');
   const [simSpeed, setSimSpeed] = useState(1);
   const [fxEnabled, setFxEnabled] = useState(true);
   const [logFilter, setLogFilter] = useState('all');
@@ -406,6 +407,11 @@ export default function App() {
       {!isEmbed && (
         <HeaderBar
           activeScene={activeScene}
+          villageTime={villageTime}
+          onChangeVillageTime={(mode) => {
+            setVillageTime(mode);
+            playRetroTone('click', fxEnabled);
+          }}
           onEnterOffice={() => enterOffice()}
           onExitToVillage={exitToVillage}
           agentCount={office.agents.length}
@@ -466,6 +472,7 @@ export default function App() {
         <OfficeViewport
           isEmbed={isEmbed}
           activeScene={activeScene}
+          villageTime={villageTime}
           onEnterOffice={() => enterOffice()}
           onExitToVillage={exitToVillage}
           onVillageNotice={(msg) => showToast(msg, 'info')}

@@ -7,11 +7,14 @@ import {
   LocateFixed,
   Map,
   Maximize2,
+  Moon,
   Music,
   PanelRightClose,
   PanelRightOpen,
   RotateCcw,
   Settings,
+  Sun,
+  Sunrise,
   Users,
   Volume2,
   VolumeX,
@@ -24,6 +27,8 @@ import { OFFICE_BGM_TRACKS } from '../utils/audio';
 
 export default function HeaderBar({
   activeScene = 'village',
+  villageTime = 'day',
+  onChangeVillageTime = null,
   onEnterOffice = null,
   onExitToVillage = null,
   agentCount,
@@ -155,6 +160,50 @@ export default function HeaderBar({
             <span className="hidden sm:inline">Office HQ</span>
           </button>
         </div>
+
+        {activeScene === 'village' && onChangeVillageTime && (
+          <div
+            className="hidden sm:flex items-center gap-0.5 bg-slate-950/90 border border-slate-800 rounded-xl p-0.5"
+            title="Suasana pencahayaan desa (Siang / Senja / Malam)"
+          >
+            <button
+              type="button"
+              onClick={() => onChangeVillageTime('day')}
+              className={`p-1.5 rounded-lg transition-colors ${
+                villageTime === 'day'
+                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                  : 'text-slate-400 hover:bg-slate-800 border border-transparent'
+              }`}
+              title="Siang Cerah"
+            >
+              <Sun className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeVillageTime('sunset')}
+              className={`p-1.5 rounded-lg transition-colors ${
+                villageTime === 'sunset'
+                  ? 'bg-orange-500/25 text-orange-300 border border-orange-500/40'
+                  : 'text-slate-400 hover:bg-slate-800 border border-transparent'
+              }`}
+              title="Senja Keemasan"
+            >
+              <Sunrise className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeVillageTime('night')}
+              className={`p-1.5 rounded-lg transition-colors ${
+                villageTime === 'night'
+                  ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-500/40'
+                  : 'text-slate-400 hover:bg-slate-800 border border-transparent'
+              }`}
+              title="Malam Bercahaya"
+            >
+              <Moon className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         <div className="hidden md:flex items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-0.5 shrink-0">
         <button

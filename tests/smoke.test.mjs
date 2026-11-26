@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import handler from '../api/interact.js';
+import { VILLAGE_SPRITE_KEYS } from '../src/utils/villageAssets.js';
 import { isOutputTruncated, normalizeAgyEventLine } from '../server/agyBridge.js';
 import { abortableSleep, executeAgentPrompt } from '../src/utils/geminiClient.js';
 import { AMBIENT_ACTIVITIES, AMBIENT_STAFF, CORE_AGENT_IDS, DEFAULT_AGENTS, DIRECTOR_SEAT_ZONE, EXTRA_AGENT_SLOTS, FULLSTACK_AGENT_ID, MEETING_SEATS, OFFICE_EXIT_ZONE, WAYPOINTS } from '../src/constants/officeConfig.js';
@@ -499,6 +502,14 @@ assert.equal(
   false,
   'Basketball defaultShootSpot must be clear'
 );
+
+// 13. Real 16-bit PNG sprite assets exist in public/assets/village/
+for (const key of VILLAGE_SPRITE_KEYS) {
+  const filePath = path.resolve(process.cwd(), 'public', 'assets', 'village', `${key}.png`);
+  assert.ok(fs.existsSync(filePath), `Missing village sprite asset: ${filePath}`);
+  const stat = fs.statSync(filePath);
+  assert.ok(stat.size > 1024, `Village sprite asset ${key}.png looks empty (${stat.size} bytes)`);
+}
 
 globalThis.fetch = origFetch;
 console.log('ALL_SMOKE_TESTS_PASSED');

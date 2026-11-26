@@ -34,11 +34,13 @@ import {
   VILLAGE_MINIMAP_RECT,
   createVillageBackgroundBuffer,
   drawVillageActivityHud,
+  drawVillageAtmosphereLighting,
   drawVillageBoat,
   drawVillageDynamicOverlay,
   drawVillageMinimap,
   drawVillagePet,
 } from '../utils/villageRenderer';
+import { loadVillageSprites } from '../utils/villageAssets';
 
 const ALL_VILLAGE_SEATS = [...VILLAGE_BENCHES, ...VILLAGE_EXTRA_SEATS];
 
@@ -1099,6 +1101,7 @@ function spawnParticles(particles, event) {
 
 export default function OfficeCanvas2D({
   activeScene = 'village',
+  villageTime = 'day',
   npcRef,
   directorRef,
   fxEventsRef = null,
@@ -1124,6 +1127,7 @@ export default function OfficeCanvas2D({
   const villageBgBufferRef = useRef(null);
   const keysRef = useRef({});
   const sceneRef = useRef(activeScene);
+  const villageTimeRef = useRef(villageTime);
   const fxEnabledRef = useRef(fxEnabled);
   const showAmbientRef = useRef(showAmbientStaff);
   const onDirectorSitRef = useRef(onDirectorSit);
@@ -1189,6 +1193,17 @@ export default function OfficeCanvas2D({
       }
     }
   }, [activeScene, directorRef]);
+
+  useEffect(() => {
+    villageTimeRef.current = villageTime;
+  }, [villageTime]);
+
+  // Muat sprite pixel-art village asli & refresh buffer latar saat aset selesai dimuat
+  useEffect(() => {
+    return loadVillageSprites(() => {
+      villageBgBufferRef.current = createVillageBackgroundBuffer();
+    });
+  }, []);
 
   useEffect(() => {
     fxEnabledRef.current = fxEnabled;
@@ -2737,7 +2752,7 @@ export default function OfficeCanvas2D({
           }
         });
 
-        // Render partikel (mis. efek elus kucing Mochi)
+        // Render partikel (mis. efek elus kucing Mochi & confetti basket)
         particlesRef.current.forEach((p) => {
           ctx.save();
           ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
@@ -2745,6 +2760,9 @@ export default function OfficeCanvas2D({
           ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
           ctx.restore();
         });
+
+        // Pencahayaan suasana desa (Siang / Senja / Malam dengan pendar lampu)
+        drawVillageAtmosphereLighting(ctx, villageTimeRef.current, timeSec, tramXRef.current);
       } else {
         ctx.drawImage(bgBufferRef.current, 0, 0);
 

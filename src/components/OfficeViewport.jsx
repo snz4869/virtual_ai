@@ -7,6 +7,7 @@ import { VILLAGE_BUILDINGS, VILLAGE_NAME } from '../constants/villageConfig';
 export default function OfficeViewport({
   isEmbed = false,
   activeScene = 'village',
+  villageTime = 'day',
   onEnterOffice = null,
   onExitToVillage = null,
   onVillageNotice = null,
@@ -38,6 +39,7 @@ export default function OfficeViewport({
       <div className="flex-1 min-h-0 relative">
         <OfficeCanvas2D
           activeScene={activeScene}
+          villageTime={villageTime}
           onEnterOffice={onEnterOffice}
           onExitToVillage={onExitToVillage}
           onVillageNotice={onVillageNotice}
