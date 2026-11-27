@@ -41,7 +41,7 @@ import {
   drawVillagePet,
   drawVillageTramTunnels,
 } from '../utils/villageRenderer';
-import { loadVillageSprites } from '../utils/villageAssets';
+import { getCharacterSprite, getOfficeSprite, loadVillageSprites } from '../utils/villageAssets';
 
 const ALL_VILLAGE_SEATS = [...VILLAGE_BENCHES, ...VILLAGE_EXTRA_SEATS];
 
@@ -165,7 +165,45 @@ function drawPixelBox(ctx, x, y, w, h, fill, stroke = '#2c221e', lineWidth = 2) 
   }
 }
 
+function drawOfficeSprite(ctx, key, x, y, w, h) {
+  const sprite = getOfficeSprite(key);
+  if (!sprite) return false;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(sprite, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  ctx.restore();
+  return true;
+}
+
+function fillOfficeFloorPattern(ctx, key, x, y, w, h, tintColor = null, tintAlpha = 0.2) {
+  const tile = getOfficeSprite(key);
+  if (!tile) return false;
+  const pattern = ctx.createPattern(tile, 'repeat');
+  if (!pattern) return false;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = pattern;
+  ctx.fillRect(x, y, w, h);
+  if (tintColor && tintAlpha > 0) {
+    ctx.fillStyle = tintColor;
+    ctx.globalAlpha = tintAlpha;
+    ctx.fillRect(x, y, w, h);
+  }
+  ctx.restore();
+  return true;
+}
+
 function drawPixelPlant(ctx, x, y) {
+  const variant = ((Math.round(x) + Math.round(y)) % 2 === 0) ? 'plant_ficus' : 'plant_palm';
+  if (getOfficeSprite(variant)) {
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 14, 13, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    drawOfficeSprite(ctx, variant, x - 16, y - 42, 32, 60);
+    return;
+  }
+
   ctx.fillStyle = 'rgba(0,0,0,0.16)';
   ctx.beginPath();
   ctx.ellipse(x, y + 14, 12, 5, 0, 0, Math.PI * 2);
@@ -191,7 +229,22 @@ function drawPixelPlant(ctx, x, y) {
   });
 }
 
-function drawRug(ctx, x, y, w, h, mainColor, borderColor, accentColor = null) {
+function drawRug(ctx, x, y, w, h, mainColor, borderColor, accentColor = null, rugKey = null) {
+  const resolvedKey =
+    rugKey ||
+    (mainColor === '#d7e8ca'
+      ? 'rug_green'
+      : mainColor === '#e2d3c1' || mainColor === '#ead9bc' || mainColor === '#f2e1cc'
+        ? 'rug_gold'
+        : 'rug_blue');
+  if (getOfficeSprite(resolvedKey)) {
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    drawOfficeSprite(ctx, resolvedKey, x, y, w, h);
+    ctx.restore();
+    return;
+  }
+
   drawPixelBox(ctx, x, y, w, h, borderColor, 'rgba(30, 41, 59, 0.35)', 1.5);
   ctx.fillStyle = mainColor;
   ctx.fillRect(x + 5, y + 5, w - 10, h - 10);
@@ -273,24 +326,54 @@ function drawWallClock(ctx, x, y) {
 }
 
 function drawWorkstation(ctx, x, y, screenColor = '#38bdf8', facing = 'down') {
-  // Bayangan meja
+  // Kursi ergonomis kantor (digambar di belakang meja jika menghadap ke bawah)
+  const chairY = facing === 'down' ? y - 18 : y + 48;
+  drawPixelBox(ctx, x + 34, chairY, 28, 15, '#334155', '#0f172a', 2);
+  ctx.fillStyle = '#64748b';
+  ctx.fillRect(x + 37, chairY + (facing === 'down' ? 2 : 9), 22, 4);
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(x + 32, chairY + 3, 3, 9);
+  ctx.fillRect(x + 61, chairY + 3, 3, 9);
+
+  const deskKey = facing === 'down' ? 'desk_front' : 'desk_back';
+  const laptopKey =
+    facing === 'down'
+      ? (Math.round(x + y) % 2 === 0 ? 'laptop_front' : 'laptop_silver')
+      : 'laptop_back';
+
+  if (getOfficeSprite(deskKey)) {
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.fillRect(x + 3, y + 4, 96, 46);
+    drawOfficeSprite(ctx, deskKey, x, y - 6, 96, 56);
+    if (!drawOfficeSprite(ctx, laptopKey, x + 32, y + 4, 32, 30)) {
+      drawPixelBox(ctx, x + 28, y + 6, 40, 20, '#1e293b', '#0f172a', 2);
+      ctx.fillStyle = screenColor;
+      ctx.fillRect(x + 31, y + 9, 34, 14);
+    }
+    drawOfficeSprite(ctx, 'coffee_cup', x + 70, y + 8, 18, 18);
+    // Buku catatan kecil di sisi kiri meja
+    drawPixelBox(ctx, x + 9, y + 12, 14, 16, '#fef9c3', '#713f12', 1.2);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(x + 12, y + 16, 8, 1.5);
+    ctx.fillRect(x + 12, y + 20, 6, 1.5);
+    return;
+  }
+
+  // Fallback prosedural
   ctx.fillStyle = 'rgba(0,0,0,0.13)';
   ctx.fillRect(x + 3, y + 4, 96, 46);
 
-  // Permukaan meja kayu dengan aksen bevel
   drawPixelBox(ctx, x, y, 96, 46, '#c88a55', '#2c221e', 2);
   ctx.fillStyle = '#dda673';
   ctx.fillRect(x + 3, y + 3, 90, 9);
   ctx.fillStyle = '#b47643';
   ctx.fillRect(x + 3, y + 40, 90, 3);
 
-  // Dudukan monitor + monitor layar lebar
   ctx.fillStyle = '#475569';
   ctx.fillRect(x + 43, y + 26, 10, 4);
   drawPixelBox(ctx, x + 26, y + 5, 44, 22, '#1e293b', '#0f172a', 2);
   ctx.fillStyle = screenColor;
   ctx.fillRect(x + 29, y + 8, 38, 16);
-  // Highlight kaca & baris kode halus
   ctx.fillStyle = 'rgba(255,255,255,0.22)';
   ctx.fillRect(x + 29, y + 8, 38, 4);
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
@@ -298,16 +381,14 @@ function drawWorkstation(ctx, x, y, screenColor = '#38bdf8', facing = 'down') {
   ctx.fillRect(x + 32, y + 16, 26, 2);
   ctx.fillRect(x + 32, y + 20, 14, 2);
 
-  // Keyboard & mousepad + mouse
   drawPixelBox(ctx, x + 30, y + 31, 32, 9, '#e2e8f0', '#475569', 1.5);
   ctx.fillStyle = '#94a3b8';
   ctx.fillRect(x + 33, y + 33, 26, 2);
   ctx.fillRect(x + 33, y + 36, 22, 2);
   ctx.fillStyle = '#334155';
-  ctx.fillRect(x + 65, y + 30, 14, 12); // Mousepad
+  ctx.fillRect(x + 65, y + 30, 14, 12);
   drawPixelBox(ctx, x + 68, y + 32, 7, 8, '#f1f5f9', '#475569', 1.2);
 
-  // Buku catatan + sticky note + cangkir mini di samping meja
   drawPixelBox(ctx, x + 7, y + 13, 15, 19, '#fef9c3', '#713f12', 1.5);
   ctx.fillStyle = '#94a3b8';
   ctx.fillRect(x + 10, y + 18, 9, 1.5);
@@ -316,15 +397,6 @@ function drawWorkstation(ctx, x, y, screenColor = '#38bdf8', facing = 'down') {
   drawPixelBox(ctx, x + 79, y + 11, 10, 10, '#f8fafc', '#475569', 1.2);
   ctx.fillStyle = '#78350f';
   ctx.fillRect(x + 81, y + 13, 6, 6);
-
-  // Kursi ergonomis dengan sandaran & pegangan tangan
-  const chairY = facing === 'down' ? y - 17 : y + 48;
-  drawPixelBox(ctx, x + 34, chairY, 28, 15, '#475569', '#1e293b', 2);
-  ctx.fillStyle = '#64748b';
-  ctx.fillRect(x + 37, chairY + (facing === 'down' ? 2 : 9), 22, 4);
-  ctx.fillStyle = '#1e293b';
-  ctx.fillRect(x + 32, chairY + 3, 3, 9);
-  ctx.fillRect(x + 61, chairY + 3, 3, 9);
 }
 
 function drawActiveMonitorOverlay(ctx, npc, timeSec) {
@@ -364,6 +436,13 @@ function drawActiveMonitorOverlay(ctx, npc, timeSec) {
 }
 
 function drawBookshelf(ctx, x, y, w = 72) {
+  if (getOfficeSprite('bookshelf')) {
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.fillRect(x + 3, y + 6, w, 44);
+    drawOfficeSprite(ctx, 'bookshelf', x, y - 10, w, 58);
+    return;
+  }
+
   drawPixelBox(ctx, x, y, w, 44, '#8d5b3c', '#2c221e', 2);
   const bookColors = ['#ef4444', '#3b82f6', '#eab308', '#10b981', '#a855f7'];
   for (let row = 0; row < 2; row++) {
@@ -377,6 +456,20 @@ function drawBookshelf(ctx, x, y, w = 72) {
   }
 }
 
+const ROOM_FLOOR_SPRITES = {
+  director: 'floor_wood_warm',
+  product: 'floor_wood_light',
+  lounge: 'floor_wood_light',
+  cx: 'floor_tile_light',
+  recreation: 'floor_tile_light',
+  pantry: 'floor_tile_light',
+  fullstack_studio: 'floor_slate_tech',
+  server_lab: 'floor_slate_tech',
+  office_cafe: 'floor_wood_warm',
+  design_studio: 'floor_wood_warm',
+  townhall: 'floor_slate_tech',
+};
+
 function createOfficeBackgroundBuffer() {
   const off = document.createElement('canvas');
   off.width = WORLD_W;
@@ -384,28 +477,34 @@ function createOfficeBackgroundBuffer() {
   const ctx = off.getContext('2d');
 
   const tileSize = 32;
-  for (let y = 0; y < WORLD_H; y += tileSize) {
-    for (let x = 0; x < WORLD_W; x += tileSize) {
-      const isAlt = ((x / tileSize + y / tileSize) | 0) % 2 === 0;
-      ctx.fillStyle = isAlt ? '#f4ead5' : '#ede0c6';
-      ctx.fillRect(x, y, tileSize, tileSize);
-      ctx.strokeStyle = 'rgba(139, 115, 85, 0.14)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, y + 0.5, tileSize, tileSize);
+  if (!fillOfficeFloorPattern(ctx, 'floor_wood_light', 0, 0, WORLD_W, WORLD_H, '#f4ead5', 0.28)) {
+    for (let y = 0; y < WORLD_H; y += tileSize) {
+      for (let x = 0; x < WORLD_W; x += tileSize) {
+        const isAlt = ((x / tileSize + y / tileSize) | 0) % 2 === 0;
+        ctx.fillStyle = isAlt ? '#f4ead5' : '#ede0c6';
+        ctx.fillRect(x, y, tileSize, tileSize);
+        ctx.strokeStyle = 'rgba(139, 115, 85, 0.14)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, tileSize, tileSize);
+      }
     }
   }
 
   OFFICE_ROOMS.forEach((room) => {
-    for (let y = room.y; y < room.y + room.h; y += tileSize) {
-      for (let x = room.x; x < room.x + room.w; x += tileSize) {
-        const isAlt = ((x / tileSize + y / tileSize) | 0) % 2 === 0;
-        ctx.fillStyle = isAlt ? room.floorColor : room.tileAlt;
-        ctx.fillRect(
-          x,
-          y,
-          Math.min(tileSize, room.x + room.w - x),
-          Math.min(tileSize, room.y + room.h - y)
-        );
+    const floorKey = ROOM_FLOOR_SPRITES[room.id] || 'floor_wood_light';
+    const tintAlpha = floorKey === 'floor_slate_tech' ? 0.34 : 0.24;
+    if (!fillOfficeFloorPattern(ctx, floorKey, room.x, room.y, room.w, room.h, room.floorColor, tintAlpha)) {
+      for (let y = room.y; y < room.y + room.h; y += tileSize) {
+        for (let x = room.x; x < room.x + room.w; x += tileSize) {
+          const isAlt = ((x / tileSize + y / tileSize) | 0) % 2 === 0;
+          ctx.fillStyle = isAlt ? room.floorColor : room.tileAlt;
+          ctx.fillRect(
+            x,
+            y,
+            Math.min(tileSize, room.x + room.w - x),
+            Math.min(tileSize, room.y + room.h - y)
+          );
+        }
       }
     }
 
@@ -417,7 +516,7 @@ function createOfficeBackgroundBuffer() {
       ctx.lineWidth = 4;
       ctx.strokeRect(room.x, room.y, room.w, room.h);
 
-      ctx.fillStyle = '#f4ead5';
+      ctx.fillStyle = '#e8dcc4';
       if (room.door.side === 'bottom') {
         ctx.fillRect(room.door.x, room.y + room.h - 8, room.door.w, 16);
       } else if (room.door.side === 'top') {
@@ -433,15 +532,24 @@ function createOfficeBackgroundBuffer() {
   ctx.strokeRect(7, 7, WORLD_W - 14, WORLD_H - 14);
 
   // Pintu kaca utama di dinding selatan koridor untuk keluar ke Village
-  drawPixelBox(ctx, 260, 1166, 76, 28, '#4f46e5', '#1e1b4b', 1.8);
-  ctx.fillStyle = '#e0e7ff';
-  ctx.font = 'bold 9px "JetBrains Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('VILLAGE', 298, 1183);
-  drawPixelBox(ctx, 256, 1196, 84, 20, '#0f172a', '#38bdf8', 2);
-  ctx.fillStyle = '#7dd3fc';
-  ctx.fillRect(262, 1200, 33, 12);
-  ctx.fillRect(301, 1200, 33, 12);
+  if (getOfficeSprite('exit_door')) {
+    drawOfficeSprite(ctx, 'exit_door', 258, 1152, 80, 66);
+    drawPixelBox(ctx, 260, 1134, 76, 19, '#4f46e5', '#1e1b4b', 1.5);
+    ctx.fillStyle = '#e0e7ff';
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('VILLAGE', 298, 1147);
+  } else {
+    drawPixelBox(ctx, 260, 1166, 76, 28, '#4f46e5', '#1e1b4b', 1.8);
+    ctx.fillStyle = '#e0e7ff';
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('VILLAGE', 298, 1183);
+    drawPixelBox(ctx, 256, 1196, 84, 20, '#0f172a', '#38bdf8', 2);
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillRect(262, 1200, 33, 12);
+    ctx.fillRect(301, 1200, 33, 12);
+  }
 
   // Efek cahaya matahari lembut masuk dari jendela atas (sepanjang kantor widescreen)
   [390, 500, 610, 780, 880, 1080, 1210, 1340, 1540, 1690].forEach((wx) => {
@@ -486,22 +594,33 @@ function createOfficeBackgroundBuffer() {
   // Meja rapat kayu solid + bayangan + laptop + berkas + cangkir
   ctx.fillStyle = 'rgba(0,0,0,0.16)';
   ctx.fillRect(109, 120, 130, 145);
-  drawPixelBox(ctx, 105, 115, 130, 145, '#b87a4b', '#2c221e', 2.5);
-  ctx.fillStyle = '#ca8d5d';
-  ctx.fillRect(111, 121, 118, 133);
-  ctx.strokeStyle = 'rgba(92,52,24,0.35)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(114.5, 124.5, 111, 126);
+  if (getOfficeSprite('meeting_table')) {
+    drawOfficeSprite(ctx, 'meeting_table', 102, 110, 136, 156);
+  } else {
+    drawPixelBox(ctx, 105, 115, 130, 145, '#b87a4b', '#2c221e', 2.5);
+    ctx.fillStyle = '#ca8d5d';
+    ctx.fillRect(111, 121, 118, 133);
+    ctx.strokeStyle = 'rgba(92,52,24,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(114.5, 124.5, 111, 126);
+  }
   // Laptop Director di sisi kiri meja
-  drawPixelBox(ctx, 118, 166, 18, 24, '#334155', '#0f172a', 1.5);
-  ctx.fillStyle = '#38bdf8';
-  ctx.fillRect(121, 169, 12, 18);
+  if (!drawOfficeSprite(ctx, 'laptop_right', 112, 162, 30, 30)) {
+    drawPixelBox(ctx, 118, 166, 18, 24, '#334155', '#0f172a', 1.5);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(121, 169, 12, 18);
+  }
   // Berkas proyek & cangkir rapat
   drawPixelBox(ctx, 198, 132, 20, 16, '#fef9c3', '#854d0e', 1.2);
   drawPixelBox(ctx, 202, 220, 18, 14, '#e0f2fe', '#0369a1', 1.2);
-  drawPixelBox(ctx, 124, 132, 9, 9, '#f8fafc', '#475569', 1.2);
-  drawPixelBox(ctx, 124, 228, 9, 9, '#f8fafc', '#475569', 1.2);
-  drawPixelPlant(ctx, 170, 182);
+  if (!drawOfficeSprite(ctx, 'coffee_cup', 120, 128, 18, 18)) {
+    drawPixelBox(ctx, 124, 132, 9, 9, '#f8fafc', '#475569', 1.2);
+  }
+  if (!drawOfficeSprite(ctx, 'coffee_cup', 120, 224, 18, 18)) {
+    drawPixelBox(ctx, 124, 228, 9, 9, '#f8fafc', '#475569', 1.2);
+  }
+  // Mesin fotokopi kantor di sudut kanan atas ruang Director
+  drawOfficeSprite(ctx, 'copy_machine', 260, 280, 52, 52);
 
   // Kursi eksekutif rapat (dengan sandaran & bantalan)
   [125, 170, 215].forEach((cy) => {
@@ -558,15 +677,17 @@ function createOfficeBackgroundBuffer() {
   // === RECREATION AREA (TV + Pingpong lengkap + Sofa nyaman) ===
   drawRug(ctx, 430, 866, 206, 210, '#cde0f0', '#8fb1cf', 'rgba(255,255,255,0.4)');
   // Wall TV + konsol kabinet
-  drawPixelBox(ctx, 488, 792, 98, 22, '#1e293b', '#0f172a', 2);
-  ctx.fillStyle = '#0ea5e9';
-  ctx.fillRect(494, 796, 86, 13);
-  ctx.fillStyle = '#38bdf8';
-  ctx.fillRect(498, 798, 30, 8);
-  ctx.fillStyle = '#facc15';
-  ctx.fillRect(534, 799, 20, 4);
-  ctx.fillStyle = '#34d399';
-  ctx.fillRect(558, 799, 16, 6);
+  if (!drawOfficeSprite(ctx, 'tv_widescreen', 488, 774, 98, 62)) {
+    drawPixelBox(ctx, 488, 792, 98, 22, '#1e293b', '#0f172a', 2);
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(494, 796, 86, 13);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(498, 798, 30, 8);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(534, 799, 20, 4);
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(558, 799, 16, 6);
+  }
 
   // Meja pingpong + bayangan + jaring + bet & bola
   ctx.fillStyle = 'rgba(0,0,0,0.16)';
@@ -598,29 +719,38 @@ function createOfficeBackgroundBuffer() {
   // === PANTRY & UTILITY (Dispenser galon, meja sink + mesin kopi, kulkas bermagnet) ===
   drawRug(ctx, 44, 474, 156, 74, '#dcd4ea', '#b6a8cf');
   // Dispenser galon air
-  drawPixelBox(ctx, 42, 415, 32, 34, '#e2e8f0', '#334155', 2);
-  ctx.fillStyle = '#38bdf8';
-  ctx.beginPath();
-  ctx.arc(58, 427, 9, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#bae6fd';
-  ctx.fillRect(54, 422, 4, 7);
-  ctx.fillStyle = '#ef4444';
-  ctx.fillRect(51, 440, 5, 4); // Keran panas
-  ctx.fillStyle = '#2563eb';
-  ctx.fillRect(60, 440, 5, 4); // Keran dingin
+  if (!drawOfficeSprite(ctx, 'water_cooler', 40, 392, 34, 64)) {
+    drawPixelBox(ctx, 42, 415, 32, 34, '#e2e8f0', '#334155', 2);
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(58, 427, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#bae6fd';
+    ctx.fillRect(54, 422, 4, 7);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(51, 440, 5, 4);
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(60, 440, 5, 4);
+  }
 
   // Meja dapur + wastafel stainless + mesin espresso + mug
-  drawPixelBox(ctx, 86, 405, 56, 46, '#94a3b8', '#334155', 2);
-  ctx.fillStyle = '#cbd5e1';
-  ctx.fillRect(89, 408, 50, 40);
-  drawPixelBox(ctx, 92, 414, 22, 22, '#64748b', '#1e293b', 1.5); // Sink
-  ctx.fillStyle = '#e2e8f0';
-  ctx.fillRect(101, 410, 4, 7); // Keran
-  drawPixelBox(ctx, 119, 412, 18, 22, '#1e293b', '#0f172a', 1.5); // Mesin kopi
-  ctx.fillStyle = '#ef4444';
-  ctx.fillRect(132, 416, 3, 3);
-  drawPixelBox(ctx, 123, 437, 8, 8, '#fef9c3', '#713f12', 1.2); // Gelas kopi
+  if (getOfficeSprite('sink') && getOfficeSprite('coffee_maker')) {
+    drawPixelBox(ctx, 84, 405, 62, 46, '#94a3b8', '#334155', 2);
+    drawOfficeSprite(ctx, 'sink', 84, 396, 30, 54);
+    drawOfficeSprite(ctx, 'coffee_maker', 114, 408, 28, 28);
+    drawOfficeSprite(ctx, 'coffee_cup', 124, 434, 16, 16);
+  } else {
+    drawPixelBox(ctx, 86, 405, 56, 46, '#94a3b8', '#334155', 2);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(89, 408, 50, 40);
+    drawPixelBox(ctx, 92, 414, 22, 22, '#64748b', '#1e293b', 1.5);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(101, 410, 4, 7);
+    drawPixelBox(ctx, 119, 412, 18, 22, '#1e293b', '#0f172a', 1.5);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(132, 416, 3, 3);
+    drawPixelBox(ctx, 123, 437, 8, 8, '#fef9c3', '#713f12', 1.2);
+  }
 
   // Kulkas kantor + pegangan pintu + stiker magnet
   drawPixelBox(ctx, 154, 395, 56, 62, '#60a5fa', '#1e3a8a', 2);
@@ -689,6 +819,12 @@ function createOfficeBackgroundBuffer() {
   drawRug(ctx, 1044, 150, 384, 240, '#d2e0ee', '#9db5ce', 'rgba(56,189,248,0.28)');
   // Deretan 4 Server Rack besar di sisi utara
   [1055, 1110, 1165, 1220].forEach((sx) => {
+    if (getOfficeSprite('server_rack')) {
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(sx + 6, 86, 36, 18);
+      drawOfficeSprite(ctx, 'server_rack', sx + 2, 34, 46, 68);
+      return;
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.16)';
     ctx.fillRect(sx + 3, 54, 48, 52);
     drawPixelBox(ctx, sx, 50, 48, 52, '#1e293b', '#0f172a', 2);
@@ -702,18 +838,23 @@ function createOfficeBackgroundBuffer() {
     });
   });
   // Layar Wall Telemetry Monitor di kanan atas Server Lab
-  drawPixelBox(ctx, 1320, 50, 108, 52, '#0f172a', '#334155', 2);
-  ctx.fillStyle = '#0284c7';
-  ctx.fillRect(1326, 56, 96, 40);
-  ctx.fillStyle = '#7dd3fc';
-  ctx.fillRect(1332, 62, 36, 4);
-  ctx.fillStyle = '#4ade80';
-  ctx.fillRect(1332, 74, 12, 16);
-  ctx.fillRect(1348, 68, 12, 22);
-  ctx.fillRect(1364, 72, 12, 18);
-  ctx.fillRect(1380, 64, 12, 26);
-  ctx.fillStyle = '#facc15';
-  ctx.fillRect(1398, 70, 18, 10);
+  if (getOfficeSprite('server_screen')) {
+    drawPixelBox(ctx, 1318, 46, 112, 58, '#0f172a', '#334155', 2);
+    drawOfficeSprite(ctx, 'server_screen', 1322, 50, 104, 50);
+  } else {
+    drawPixelBox(ctx, 1320, 50, 108, 52, '#0f172a', '#334155', 2);
+    ctx.fillStyle = '#0284c7';
+    ctx.fillRect(1326, 56, 96, 40);
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillRect(1332, 62, 36, 4);
+    ctx.fillStyle = '#4ade80';
+    ctx.fillRect(1332, 74, 12, 16);
+    ctx.fillRect(1348, 68, 12, 22);
+    ctx.fillRect(1364, 72, 12, 18);
+    ctx.fillRect(1380, 64, 12, 26);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(1398, 70, 18, 10);
+  }
   // 2 Workstation AI/Cloud Engineer
   drawWorkstation(ctx, 1070, 270, '#38bdf8', 'down');
   drawWorkstation(ctx, 1280, 270, '#2dd4bf', 'down');
@@ -724,31 +865,37 @@ function createOfficeBackgroundBuffer() {
   // Bar Counter Espresso panjang + mesin kopi + pastry display
   ctx.fillStyle = 'rgba(0,0,0,0.16)';
   ctx.fillRect(1514, 56, 310, 58);
-  drawPixelBox(ctx, 1510, 52, 310, 58, '#8d5b3c', '#2c221e', 2.5);
-  ctx.fillStyle = '#b07b55';
-  ctx.fillRect(1515, 57, 300, 48);
-  // Mesin Espresso ganda
-  drawPixelBox(ctx, 1534, 62, 46, 32, '#334155', '#0f172a', 2);
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillRect(1540, 68, 34, 12);
-  ctx.fillStyle = '#ef4444';
-  ctx.fillRect(1570, 65, 4, 4);
-  // Etalase kue / croissant kaca
-  drawPixelBox(ctx, 1606, 62, 74, 34, '#e0f2fe', '#0369a1', 1.8);
-  ctx.fillStyle = '#f59e0b';
-  ctx.fillRect(1614, 74, 14, 10);
-  ctx.fillRect(1634, 72, 16, 12);
-  ctx.fillStyle = '#fb7185';
-  ctx.fillRect(1656, 74, 14, 10);
-  // Cangkir tersusun & kasir
-  drawPixelBox(ctx, 1712, 66, 38, 26, '#1e293b', '#0f172a', 1.5);
-  ctx.fillStyle = '#34d399';
-  ctx.fillRect(1716, 70, 30, 12);
-  [1768, 1784, 1800].forEach((mx) => {
-    drawPixelBox(ctx, mx, 72, 10, 10, '#fef9c3', '#713f12', 1.2);
-  });
+  if (getOfficeSprite('cafe_counter')) {
+    drawOfficeSprite(ctx, 'cafe_counter', 1510, 44, 160, 68);
+    drawOfficeSprite(ctx, 'cafe_counter', 1664, 44, 158, 68);
+    drawOfficeSprite(ctx, 'coffee_maker', 1534, 52, 38, 38);
+    drawOfficeSprite(ctx, 'coffee_maker', 1574, 52, 38, 38);
+    [1760, 1780, 1800].forEach((mx) => drawOfficeSprite(ctx, 'coffee_cup', mx, 66, 18, 18));
+  } else {
+    drawPixelBox(ctx, 1510, 52, 310, 58, '#8d5b3c', '#2c221e', 2.5);
+    ctx.fillStyle = '#b07b55';
+    ctx.fillRect(1515, 57, 300, 48);
+    drawPixelBox(ctx, 1534, 62, 46, 32, '#334155', '#0f172a', 2);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(1540, 68, 34, 12);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(1570, 65, 4, 4);
+    drawPixelBox(ctx, 1606, 62, 74, 34, '#e0f2fe', '#0369a1', 1.8);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(1614, 74, 14, 10);
+    ctx.fillRect(1634, 72, 16, 12);
+    ctx.fillStyle = '#fb7185';
+    ctx.fillRect(1656, 74, 14, 10);
+    drawPixelBox(ctx, 1712, 66, 38, 26, '#1e293b', '#0f172a', 1.5);
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(1716, 70, 30, 12);
+    [1768, 1784, 1800].forEach((mx) => {
+      drawPixelBox(ctx, mx, 72, 10, 10, '#fef9c3', '#713f12', 1.2);
+    });
+  }
   // Bar stools di depan counter
   [1545, 1605, 1665, 1725, 1785].forEach((bx) => {
+    if (drawOfficeSprite(ctx, 'wood_stool', bx - 12, 112, 24, 24)) return;
     ctx.fillStyle = '#475569';
     ctx.beginPath();
     ctx.arc(bx, 124, 9, 0, Math.PI * 2);
@@ -764,9 +911,23 @@ function createOfficeBackgroundBuffer() {
     { x: 1656, y: 424 },
   ].forEach((tb) => {
     // Kursi kiri & kanan
-    drawPixelBox(ctx, tb.x - 42, tb.y - 10, 14, 20, '#d97706', '#78350f', 1.5);
-    drawPixelBox(ctx, tb.x + 28, tb.y - 10, 14, 20, '#d97706', '#78350f', 1.5);
-    // Bayangan & meja kayu bundar
+    if (!drawOfficeSprite(ctx, 'wood_stool', tb.x - 46, tb.y - 11, 22, 22)) {
+      drawPixelBox(ctx, tb.x - 42, tb.y - 10, 14, 20, '#d97706', '#78350f', 1.5);
+    }
+    if (!drawOfficeSprite(ctx, 'wood_stool', tb.x + 24, tb.y - 11, 22, 22)) {
+      drawPixelBox(ctx, tb.x + 28, tb.y - 10, 14, 20, '#d97706', '#78350f', 1.5);
+    }
+    if (getOfficeSprite('round_table')) {
+      ctx.fillStyle = 'rgba(0,0,0,0.14)';
+      ctx.beginPath();
+      ctx.arc(tb.x + 3, tb.y + 6, 26, 0, Math.PI * 2);
+      ctx.fill();
+      drawOfficeSprite(ctx, 'round_table', tb.x - 28, tb.y - 28, 56, 56);
+      drawOfficeSprite(ctx, 'coffee_cup', tb.x - 14, tb.y - 12, 16, 16);
+      drawOfficeSprite(ctx, 'coffee_cup', tb.x + 2, tb.y - 4, 16, 16);
+      return;
+    }
+    // Fallback meja kayu bundar
     ctx.fillStyle = 'rgba(0,0,0,0.14)';
     ctx.beginPath();
     ctx.arc(tb.x + 3, tb.y + 4, 26, 0, Math.PI * 2);
@@ -782,7 +943,6 @@ function createOfficeBackgroundBuffer() {
     ctx.beginPath();
     ctx.arc(tb.x, tb.y, 20, 0, Math.PI * 2);
     ctx.fill();
-    // 2 cangkir kopi di atas meja
     drawPixelBox(ctx, tb.x - 11, tb.y - 7, 8, 8, '#f8fafc', '#475569', 1.2);
     drawPixelBox(ctx, tb.x + 4, tb.y + 1, 8, 8, '#fef9c3', '#713f12', 1.2);
   });
@@ -898,10 +1058,88 @@ function drawCarriedDocument(ctx, px, py, facing, timeSec) {
   ctx.fillRect(docX + 2, docY + 10, 5, 1.5);
 }
 
+const LPC_CHARACTER_GRID = {
+  frameW: 64,
+  frameH: 64,
+  drawW: 64,
+  drawH: 64,
+  feetPadPx: 3,
+  sitCropPx: 6,
+  stepRate: 0.9,
+  labelOffset: 51,
+  // Universal LPC 64x64 (576x256, 9 kolom x 4 baris): 0=up, 1=left, 2=down, 3=right
+  directions: {
+    up: { row: 0, idleCol: 0, walkCols: [1, 2, 3, 4, 5, 6, 7, 8] },
+    left: { row: 1, idleCol: 0, walkCols: [1, 2, 3, 4, 5, 6, 7, 8] },
+    down: { row: 2, idleCol: 0, walkCols: [1, 2, 3, 4, 5, 6, 7, 8] },
+    right: { row: 3, idleCol: 0, walkCols: [1, 2, 3, 4, 5, 6, 7, 8] },
+  },
+};
+
+const CABBIT_CHARACTER_GRID = {
+  frameW: 24,
+  frameH: 32,
+  drawW: 40,
+  drawH: 54,
+  feetPadPx: 0,
+  sitCropPx: 3,
+  stepRate: 0.55,
+  labelOffset: 48,
+  // Cabbit 24x32 (72x128, 3 kolom x 4 baris): 0=up, 1=right, 2=down, 3=left
+  directions: {
+    up: { row: 0, idleCol: 1, walkCols: [0, 1, 2, 1] },
+    right: { row: 1, idleCol: 1, walkCols: [0, 1, 2, 1] },
+    down: { row: 2, idleCol: 1, walkCols: [0, 1, 2, 1] },
+    left: { row: 3, idleCol: 1, walkCols: [0, 1, 2, 1] },
+  },
+};
+
+function getSpriteGridForImage(img) {
+  if (!img) return CABBIT_CHARACTER_GRID;
+  return img.naturalWidth >= 512 ? LPC_CHARACTER_GRID : CABBIT_CHARACTER_GRID;
+}
+
+function resolveCharacterSpriteKey(entity, isDirector) {
+  if (isDirector) return 'director';
+  if (entity?.spriteKey) return entity.spriteKey;
+
+  const role = String(entity?.role || '').toLowerCase();
+  if (/koki|chef|masak/.test(role)) return 'npc_chef';
+  if (/barista|kopi|cafe/.test(role)) return /office/.test(role) ? 'npc_barista_m' : 'npc_barista_f';
+  if (/musisi|musik|bard/.test(role)) return 'npc_musician';
+  if (/dermaga|pelaut|perahu/.test(role)) return 'npc_sailor';
+  if (/ketua\s*rt|pak\s*rt|tetua/.test(role)) return 'npc_elder_rt';
+  if (/atlet|basket|olahraga/.test(role)) return 'npc_athlete';
+  if (/botanis|rumah\s*kaca/.test(role)) return 'npc_botanist';
+  if (/pekebun|kebun/.test(role)) return 'npc_gardener';
+  if (/petani|kincir/.test(role)) return 'npc_farmer';
+  if (/pelukis|seni|galeri/.test(role)) return 'npc_painter';
+  if (/buku|pustaka/.test(role)) return 'npc_booklover';
+  if (/maker|bengkel/.test(role)) return 'npc_maker';
+  if (/qa|audit|cx\s*&|quality/.test(role)) return 'npc_qa_lead';
+  if (/tech\s*lead|architect|cto/.test(role)) return 'npc_tech_lead';
+  if (/full-?stack|solo/.test(role)) return 'npc_fullstack';
+  if (/brand/.test(role)) return 'npc_brand_designer';
+  if (/ui\/ux|ui\s*design|ux|design/.test(role)) return 'npc_ui_designer';
+  if (/data|security|analyst|analis/.test(role)) return 'npc_analyst';
+  if (/copy|growth|marketing|content/.test(role)) return 'npc_copywriter';
+  if (/devops|infra|server/.test(role)) return 'npc_devops';
+  if (/cloud/.test(role)) return 'npc_cloud_eng';
+  if (/backend/.test(role)) return 'npc_backend';
+  if (/frontend/.test(role)) return 'npc_frontend';
+  if (/support|customer/.test(role)) return 'npc_support';
+  if (/account|sales|exec/.test(role)) return 'npc_account_exec';
+  if (/ops|product|admin/.test(role)) return 'npc_product_ops';
+  return 'npc_developer';
+}
+
 function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected = false) {
   if (!entity || typeof entity.x !== 'number' || typeof entity.y !== 'number') return;
 
   const isAmbient = Boolean(entity.isAmbient);
+  const spriteKey = resolveCharacterSpriteKey(entity, isDirector);
+  const characterSprite = getCharacterSprite(spriteKey);
+  const spriteGrid = getSpriteGridForImage(characterSprite);
   const isWalking = isDirector
     ? Boolean(entity.isMoving)
     : entity.state === 'WALKING' ||
@@ -912,8 +1150,12 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
     : isTypingAtDesk || entity.state === 'MEETING' || entity.state === 'REPORTING';
   const facing = entity.facing || 'down';
 
-  const bob = isWalking ? Math.abs(Math.sin(entity.walkPhase || 0)) * -4 : 0;
-  const sitDrop = isSitting ? 3 : 0;
+  const typingPulse =
+    characterSprite && isTypingAtDesk ? Math.sin(timeSec * (isAmbient ? 10 : 16)) * 0.8 : 0;
+  const bob = isWalking
+    ? Math.abs(Math.sin(entity.walkPhase || 0)) * (characterSprite ? -1.2 : -4)
+    : typingPulse;
+  const sitDrop = isSitting ? (characterSprite ? 4 : 3) : 0;
   const shakeX = entity.hitTimer > 0 ? Math.sin(timeSec * 65) * 4 : 0;
   const px = Math.round(entity.x + shakeX);
   const py = Math.round(entity.y + bob + sitDrop);
@@ -933,51 +1175,79 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   ctx.ellipse(px, Math.round(entity.y) + 15, 11, 4.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const legOffset = isWalking ? Math.sin(entity.walkPhase || 0) * 3 : 0;
-  const legHeight = isSitting ? 5 : 9;
-  drawPixelBox(ctx, px - 7, py + 6 + legOffset, 6, legHeight, '#1e293b', '#0f172a', 1.5);
-  drawPixelBox(ctx, px + 1, py + 6 - legOffset, 6, legHeight, '#1e293b', '#0f172a', 1.5);
+  if (characterSprite) {
+    const dirCfg = spriteGrid.directions[facing] || spriteGrid.directions.down;
+    const stepIdx = Math.floor((entity.walkPhase || 0) * spriteGrid.stepRate) % dirCfg.walkCols.length;
+    const col = isWalking ? dirCfg.walkCols[stepIdx] : dirCfg.idleCol;
+    const sx = col * spriteGrid.frameW;
+    const sy = dirCfg.row * spriteGrid.frameH;
+    const srcH = isSitting ? spriteGrid.frameH - spriteGrid.sitCropPx : spriteGrid.frameH;
+    const drawW = spriteGrid.drawW;
+    const drawH = Math.round((spriteGrid.drawH * srcH) / spriteGrid.frameH);
+    const drawX = Math.round(px - drawW / 2);
+    const drawY = Math.round(py + 16 + spriteGrid.feetPadPx - drawH);
 
-  const shirt = entity.shirtColor || entity.accentHex || '#3b82f6';
-  const skin = entity.skinColor || '#f8cba6';
-  const hair = entity.hairColor || '#1e293b';
-
-  // Badan
-  drawPixelBox(ctx, px - 9, py - 5, 18, 13, shirt, '#1e1b18', 2);
-
-  // Animasi tangan mengetik hanya saat duduk bekerja di komputer
-  if (isTypingAtDesk) {
-    const speed = isAmbient ? 12 : 20;
-    const leftTap = Math.sin(timeSec * speed) * 2;
-    const rightTap = Math.cos(timeSec * speed) * 2;
-    drawPixelBox(ctx, px - 12, py + leftTap, 4, 5, skin, '#1e1b18', 1.2);
-    drawPixelBox(ctx, px + 8, py + rightTap, 4, 5, skin, '#1e1b18', 1.2);
-  }
-
-  // Kepala + Rambut & Mata mengikuti arah `facing`
-  drawPixelBox(ctx, px - 9, py - 21, 18, 16, skin, '#1e1b18', 2);
-
-  if (facing === 'up') {
-    drawPixelBox(ctx, px - 10, py - 24, 20, 14, hair, '#1e1b18', 1.5);
-  } else if (facing === 'left') {
-    drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
-    ctx.fillStyle = hair;
-    ctx.fillRect(px + 3, py - 18, 6, 9);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(px - 7, py - 14, 2.5, 3);
-    ctx.fillRect(px - 2, py - 14, 2.5, 3);
-  } else if (facing === 'right') {
-    drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
-    ctx.fillStyle = hair;
-    ctx.fillRect(px - 9, py - 18, 6, 9);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(px + 0, py - 14, 2.5, 3);
-    ctx.fillRect(px + 5, py - 14, 2.5, 3);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      characterSprite,
+      sx,
+      sy,
+      spriteGrid.frameW,
+      srcH,
+      drawX,
+      drawY,
+      drawW,
+      drawH
+    );
+    ctx.restore();
   } else {
-    drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(px - 5, py - 14, 2.5, 3);
-    ctx.fillRect(px + 3, py - 14, 2.5, 3);
+    const legOffset = isWalking ? Math.sin(entity.walkPhase || 0) * 3 : 0;
+    const legHeight = isSitting ? 5 : 9;
+    drawPixelBox(ctx, px - 7, py + 6 + legOffset, 6, legHeight, '#1e293b', '#0f172a', 1.5);
+    drawPixelBox(ctx, px + 1, py + 6 - legOffset, 6, legHeight, '#1e293b', '#0f172a', 1.5);
+
+    const shirt = entity.shirtColor || entity.accentHex || '#3b82f6';
+    const skin = entity.skinColor || '#f8cba6';
+    const hair = entity.hairColor || '#1e293b';
+
+    // Badan
+    drawPixelBox(ctx, px - 9, py - 5, 18, 13, shirt, '#1e1b18', 2);
+
+    // Animasi tangan mengetik hanya saat duduk bekerja di komputer
+    if (isTypingAtDesk) {
+      const speed = isAmbient ? 12 : 20;
+      const leftTap = Math.sin(timeSec * speed) * 2;
+      const rightTap = Math.cos(timeSec * speed) * 2;
+      drawPixelBox(ctx, px - 12, py + leftTap, 4, 5, skin, '#1e1b18', 1.2);
+      drawPixelBox(ctx, px + 8, py + rightTap, 4, 5, skin, '#1e1b18', 1.2);
+    }
+
+    // Kepala + Rambut & Mata mengikuti arah `facing`
+    drawPixelBox(ctx, px - 9, py - 21, 18, 16, skin, '#1e1b18', 2);
+
+    if (facing === 'up') {
+      drawPixelBox(ctx, px - 10, py - 24, 20, 14, hair, '#1e1b18', 1.5);
+    } else if (facing === 'left') {
+      drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
+      ctx.fillStyle = hair;
+      ctx.fillRect(px + 3, py - 18, 6, 9);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(px - 7, py - 14, 2.5, 3);
+      ctx.fillRect(px - 2, py - 14, 2.5, 3);
+    } else if (facing === 'right') {
+      drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
+      ctx.fillStyle = hair;
+      ctx.fillRect(px - 9, py - 18, 6, 9);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(px + 0, py - 14, 2.5, 3);
+      ctx.fillRect(px + 5, py - 14, 2.5, 3);
+    } else {
+      drawPixelBox(ctx, px - 10, py - 24, 20, 7, hair, '#1e1b18', 1.5);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(px - 5, py - 14, 2.5, 3);
+      ctx.fillRect(px + 3, py - 14, 2.5, 3);
+    }
   }
 
   // Ikon dokumen saat handoff / melapor
@@ -992,7 +1262,7 @@ function drawRPGCharacter(ctx, entity, timeSec, isDirector = false, isSelected =
   const dotSpace = isAmbient ? 0 : 9;
   const labelW = ctx.measureText(labelName).width + 16 + dotSpace;
   const labelH = isAmbient ? 16 : 18;
-  const labelY = py - (isAmbient ? 42 : 44);
+  const labelY = py - (characterSprite ? (isAmbient ? spriteGrid.labelOffset - 2 : spriteGrid.labelOffset) : isAmbient ? 42 : 44);
 
   ctx.fillStyle = isAmbient ? 'rgba(15, 23, 42, 0.68)' : 'rgba(15, 23, 42, 0.92)';
   ctx.beginPath();
@@ -1199,11 +1469,21 @@ export default function OfficeCanvas2D({
     villageTimeRef.current = villageTime;
   }, [villageTime]);
 
-  // Muat sprite pixel-art village asli & refresh buffer latar saat aset selesai dimuat
+  // Muat sprite pixel-art village, interior kantor, & karakter lalu refresh buffer latar saat aset selesai dimuat
   useEffect(() => {
-    return loadVillageSprites(() => {
-      villageBgBufferRef.current = createVillageBackgroundBuffer();
+    let timer = null;
+    const unsubscribe = loadVillageSprites(() => {
+      if (timer) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        bgBufferRef.current = createOfficeBackgroundBuffer();
+        villageBgBufferRef.current = createVillageBackgroundBuffer();
+      }, 40);
     });
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

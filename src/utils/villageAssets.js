@@ -20,7 +20,83 @@ const BASE_SPRITE_KEYS = [
   'basketball_court',
 ];
 
+const OFFICE_SPRITE_KEYS = [
+  'floor_wood_light',
+  'floor_wood_warm',
+  'floor_slate_tech',
+  'floor_tile_light',
+  'rug_blue',
+  'rug_green',
+  'rug_gold',
+  'desk_front',
+  'desk_back',
+  'desk_vertical',
+  'meeting_table',
+  'round_table',
+  'wood_stool',
+  'cafe_counter',
+  'bookshelf',
+  'laptop_front',
+  'laptop_silver',
+  'laptop_right',
+  'laptop_back',
+  'water_cooler',
+  'coffee_maker',
+  'coffee_cup',
+  'copy_machine',
+  'tv_widescreen',
+  'tv_clean',
+  'sink',
+  'plant_palm',
+  'plant_ficus',
+  'server_rack',
+  'server_screen',
+  'exit_door',
+];
+
+const CHARACTER_SPRITE_KEYS = [
+  'director',
+  // Core & Extra AI Agents
+  'npc_tech_lead',
+  'npc_developer',
+  'npc_qa_lead',
+  'npc_fullstack',
+  'npc_ui_designer',
+  'npc_analyst',
+  'npc_copywriter',
+  // Ambient Office Staff
+  'npc_frontend',
+  'npc_product_ops',
+  'npc_backend',
+  'npc_creative_f',
+  'npc_devops',
+  'npc_support',
+  'npc_account_exec',
+  'npc_office_ops',
+  'npc_ai_infra',
+  'npc_cloud_eng',
+  'npc_brand_designer',
+  'npc_barista_m',
+  // Village Residents
+  'npc_villager_bagas',
+  'npc_villager_deni',
+  'npc_barista_f',
+  'npc_maker',
+  'npc_booklover',
+  'npc_sailor',
+  'npc_gardener',
+  'npc_painter',
+  'npc_athlete',
+  'npc_elder_rt',
+  'npc_botanist',
+  'npc_chef',
+  'npc_musician',
+  'npc_farmer',
+];
+
 const spriteCache = new Map();
+const officeSpriteCache = new Map();
+const characterSpriteCache = new Map();
 let loadStarted = false;
 const listeners = new Set();
 
@@ -38,6 +114,24 @@ export function getVillageSprite(key) {
   const img = spriteCache.get(key);
   if (img && img.complete && img.naturalWidth > 0) return img;
   return null;
+}
+
+export function getOfficeSprite(key) {
+  if (!key) return null;
+  const img = officeSpriteCache.get(key);
+  if (img && img.complete && img.naturalWidth > 0) return img;
+  return null;
+}
+
+export function getCharacterSprite(key) {
+  if (!key) return null;
+  const img = characterSpriteCache.get(key);
+  if (img && img.complete && img.naturalWidth > 0) return img;
+  return null;
+}
+
+export function getDirectorSprite() {
+  return getCharacterSprite('director');
 }
 
 export function getLoadedVillageSprites() {
@@ -75,6 +169,32 @@ export function loadVillageSprites(onUpdate) {
       };
       img.src = `/assets/village/${key}.png`;
     });
+
+    OFFICE_SPRITE_KEYS.forEach((key) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        officeSpriteCache.set(key, img);
+        notifyListeners();
+      };
+      img.onerror = () => {
+        // Fallback ke renderer prosedural jika aset interior kantor tidak tersedia
+      };
+      img.src = `/assets/office/${key}.png`;
+    });
+
+    CHARACTER_SPRITE_KEYS.forEach((key) => {
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        characterSpriteCache.set(key, img);
+        notifyListeners();
+      };
+      img.onerror = () => {
+        // Fallback ke renderer prosedural jika aset karakter tidak tersedia
+      };
+      img.src = `/assets/characters/${key}.png`;
+    });
   }
 
   return () => {
@@ -83,3 +203,4 @@ export function loadVillageSprites(onUpdate) {
 }
 
 export const VILLAGE_SPRITE_KEYS = BASE_SPRITE_KEYS;
+export { OFFICE_SPRITE_KEYS, CHARACTER_SPRITE_KEYS };

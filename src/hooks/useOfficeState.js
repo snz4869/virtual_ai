@@ -118,6 +118,7 @@ export function useOfficeState() {
           deskRect: ag.deskRect,
           accentHex: ag.accentHex,
           shirtColor: ag.shirtColor,
+          spriteKey: ag.spriteKey,
         };
       }
       return createNpcEntity(ag, idx);
