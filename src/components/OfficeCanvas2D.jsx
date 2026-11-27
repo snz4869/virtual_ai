@@ -39,6 +39,7 @@ import {
   drawVillageDynamicOverlay,
   drawVillageMinimap,
   drawVillagePet,
+  drawVillageTramTunnels,
 } from '../utils/villageRenderer';
 import { loadVillageSprites } from '../utils/villageAssets';
 
@@ -2210,8 +2211,8 @@ export default function OfficeCanvas2D({
       // Update posisi Trem Wisata Desa yang tersinkronisasi + fisika bola basket
       if (isVillage) {
         tramXRef.current += VILLAGE_TRAM_CONFIG.speed * dt;
-        if (tramXRef.current > VILLAGE_W + 260) {
-          tramXRef.current = -VILLAGE_TRAM_CONFIG.startOffset;
+        if (tramXRef.current > VILLAGE_W + 60) {
+          tramXRef.current = -200;
         }
 
         const bb = basketballRef.current;
@@ -2751,6 +2752,9 @@ export default function OfficeCanvas2D({
             drawRPGCharacter(ctx, ent, timeSec, ent.isDirector, false);
           }
         });
+
+        // Terowongan rel barat & timur di atas entitas agar trem & Director mulus keluar-masuk terowongan
+        drawVillageTramTunnels(ctx);
 
         // Render partikel (mis. efek elus kucing Mochi & confetti basket)
         particlesRef.current.forEach((p) => {

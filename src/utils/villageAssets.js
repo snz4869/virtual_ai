@@ -1,11 +1,23 @@
 const BASE_SPRITE_KEYS = [
   'grass_tile',
+  'road_tile',
   'office_hq',
   'cafe',
   'cowork',
   'station',
   'bookshop',
   'windmill',
+  'gallery',
+  'villa',
+  'greenhouse',
+  'homestead',
+  'foodtruck',
+  'tree_oak',
+  'tree_pine',
+  'tree_sakura',
+  'fountain',
+  'villa_garden',
+  'basketball_court',
 ];
 
 const spriteCache = new Map();
